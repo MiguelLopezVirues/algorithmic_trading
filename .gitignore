@@ -15,3 +15,6 @@ dnd
 
 # API Keys and secrets
 .env
+
+# dataset
+*dataset.parquet

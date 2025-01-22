@@ -5,244 +5,88 @@ from joblib import Parallel, delayed
 from pathlib import Path
 import re
 import talib
-from typing import Callable, Optional
+from typing import List, Optional
+import pandas_market_calendars as mcal
+import warnings
+from tqdm  import tqdm
+
+from .file_handling import FileHandler
 
 
 # TO-DO:
 # [] add error-handling
 
-class FileHandler:
-    def read_csv_file(self, file_path: str) -> pd.DataFrame:
-        """
-        Reads a CSV file and parses its index as a datetime.
+# class FileHandler:
+#     def read_csv_file(self, file_path: str) -> pd.DataFrame:
+#         """
+#         Reads a CSV file and parses its index as a datetime.
         
-        Args:
-            file_path (str): Path to the CSV file.
+#         Args:
+#             file_path (str): Path to the CSV file.
         
-        Returns:
-            pd.DataFrame: The loaded DataFrame with a datetime index.
-        """
-        df = pd.read_csv(file_path, index_col=0)
-        df.index = pd.to_datetime(df.index, utc=False, format="%Y-%m-%d")
-        return df   
+#         Returns:
+#             pd.DataFrame: The loaded DataFrame with a datetime index.
+#         """
+#         df = pd.read_csv(file_path, index_col=0)
+#         df.index = pd.to_datetime(df.index, utc=True, format="%Y-%m-%d")
+#         return df   
     
-    def list_all_files(self, directory: str):
-        """
-        Lists all nested files in a directory.
+#     def list_all_files(self, directory: str):
+#         """
+#         Lists all nested files in a directory.
         
-        Args:
-            directory (str): Path to a directory.
+#         Args:
+#             directory (str): Path to a directory.
         
-        Returns:
-            List: List with all files, nested or not, inside the directory.
-        """
-        return [file for file in Path(directory).rglob('*') if file.is_file()]
+#         Returns:
+#             List: List with all files, nested or not, inside the directory.
+#         """
+#         return [file for file in Path(directory).rglob('*') if file.is_file()]
 
-    def save_csv_file(self, df: pd.DataFrame, save_path: str) -> None:
-        """
-        Saves a DataFrame to a CSV file, creating necessary directories.
+#     def save_dataframe_csv_file(self, df: pd.DataFrame, save_path: str) -> None:
+#         """
+#         Saves a DataFrame to a CSV file, creating necessary directories.
         
-        Args:
-            df (pd.DataFrame): The DataFrame to save.
-            save_path (str): Path to save the CSV file.
-        """
-        save_path_dir = Path(save_path).parent
-        save_path_dir.mkdir(parents=True, exist_ok=True)
+#         Args:
+#             df (pd.DataFrame): The DataFrame to save.
+#             save_path (str): Path to save the CSV file.
+#         """
+#         save_path_dir = Path(save_path).parent
+#         save_path_dir.mkdir(parents=True, exist_ok=True)
 
-        df.to_csv(save_path)
+#         df.to_csv(save_path)
 
-    def read_transform_save(
-        self,
-        transform_function: Callable[[pd.DataFrame], pd.DataFrame], 
-        read_path: str, 
-        save_path: Optional[str] = None
-    ) -> pd.DataFrame:
-        """
-        Reads a CSV, applies a transformation function, and saves the result.
+#     def read_transform_save(
+#         self,
+#         transform_function: Callable[[pd.DataFrame], pd.DataFrame], 
+#         read_path: str, 
+#         save_path: Optional[str] = None
+#     ) -> pd.DataFrame:
+#         """
+#         Reads a CSV, applies a transformation function, and saves the result.
 
-        Args:
-            transform_function (Callable): Function to transform the DataFrame.
-            read_path (str): Path to the input CSV file.
-            save_path (Optional[str]): Path to save the transformed CSV file. If None, a default path is generated.
+#         Args:
+#             transform_function (Callable): Function to transform the DataFrame.
+#             read_path (str): Path to the input CSV file.
+#             save_path (Optional[str]): Path to save the transformed CSV file. If None, a default path is generated.
 
-        Returns:
-            pd.DataFrame: Transformed DataFrame.
-        """
+#         Returns:
+#             pd.DataFrame: Transformed DataFrame.
+#         """
 
-        # Read
-        df = self.read_csv_file(read_path)
+#         # Read
+#         df = self.read_csv_file(read_path)
 
-        # Transform
-        df = transform_function(df)
+#         # Transform
+#         df = transform_function(df)
 
-        # Save
-        if not save_path:
-            save_path = re.sub(r"extracted","transfromed",read_path)
+#         # Save
+#         if not save_path:
+#             save_path = re.sub(r"extracted","transformed",read_path)
         
-        self.save_csv_file(df, save_path)
+#         self.save_dataframe_csv_file(df, save_path)
 
-        return df
-
-
-class TickerExtender(FileHandler):
-    def calculate_growth_features(self,
-                                  df: pd.DataFrame,
-                                prefix: str = ""
-                                ) -> pd.DataFrame:
-        """
-        Calculates growth features for a given DataFrame of price data.
-
-        Args:
-            df (pd.DataFrame): DataFrame containing at least a 'close' column to calculate growth on.
-            prefix (str, optional): A prefix to prepend to the new growth columns (default is "").
-
-        Returns:
-            pd.DataFrame: The original DataFrame with additional growth feature columns.
-
-        Notes
-        -----
-        - The lags are adjusted for a typical trading calendar (e.g., 1d = 1 trading day, 30d = 22 trading days).
-        - The growth columns are calculated as `(pct_change(lag) + 1)`.
-        """
-        # adjusted day lags for trading calendar
-        trading_day_lags = {
-            '1d': 1,
-            '3d': 2,
-            '7d': 5,
-            '30d': 22,
-            '90d': 66,
-            '365d': 252
-        }
-
-        for lag_name, lag in trading_day_lags.items():
-            df['growth_adj_'+ lag_name] = df["close"].pct_change(lag) + 1
-
-        growth_cols = [col for col in df.columns if "growth" in col]
-
-        return df
-    
-
-
-    def compute_daily_ticker_features(self, historical_prices_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Computes a variety of time-based, technical, and growth-related features for daily ticker data.
-
-        Args:
-            historical_prices_df (pd.DataFrame): 
-                The input DataFrame containing historical price data. Required columns include:
-                - 'open': opening price of the asset.
-                - 'high': highest price of the asset during the day.
-                - 'low': lowest price of the asset during the day.
-                - 'close': Closing price of the asset.
-                The DataFrame's index should be a dateTimeIndex representing trading days.
-
-        Returns:
-            pd.DataFrame: 
-                The input DataFrame enriched with additional feature columns, including:
-                - date-related features: 'year', 'month', 'weekday', 'date'.
-                - Growth metrics for various trading day lags (via `calculate_growth_features`).
-                - Simple moving averages: 'SMA10', 'SMA20'.
-                - Moving average trend: 'is_growing_moving_average'.
-                - Relative daily spread: 'high_minus_low_relative'.
-                - Rolling 30-day volatility: '30d_volatility'.
-                - Binary 7-day growth signal: 'is_positive_growth_7d'.
-        """
-        # convert original features to float
-        for col in historical_prices_df.select_dtypes(np.number).columns:
-            historical_prices_df[col] = historical_prices_df[col].astype("float")
-
-
-        # date features
-        historical_prices_df['year'] = historical_prices_df.index.year
-        historical_prices_df['month'] = historical_prices_df.index.month
-        historical_prices_df['weekday'] = historical_prices_df.index.weekday
-        historical_prices_df['date'] = historical_prices_df.index.date
-
-        # growth features
-        historical_prices_df = self.calculate_growth_features(historical_prices_df)
-
-        # Simple moving averages
-        historical_prices_df['SMA10'] = historical_prices_df['close'].rolling(10).mean()
-        historical_prices_df['SMA20'] = historical_prices_df['close'].rolling(20).mean()
-        historical_prices_df['is_growing_moving_average'] = np.where(
-            historical_prices_df['SMA10'] > historical_prices_df['SMA20'], 1, 0
-        )
-
-        # daily spread relative to close
-        historical_prices_df['high_minus_low_relative'] = (
-            (historical_prices_df["high"] - historical_prices_df["low"])
-            / historical_prices_df['close']
-        )
-
-        # 30d rolling volatility
-        historical_prices_df['30d_volatility'] = (
-            historical_prices_df['close'].rolling(30).std()
-            * np.sqrt(252)
-        )
-
-        # binary growth in 7d
-        historical_prices_df['is_positive_growth_7d'] = np.where(
-            historical_prices_df['growth_adj_7d'] > 1,
-            1,
-            0
-        )
-
-        return historical_prices_df
-
-    def transform_euro_yield_df(self, eurostat_euro_yield_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Transforms the Eurostat Euro yield DataFrame into a more usable format for analysis.
-
-        Args:
-            eurostat_euro_yield_df (pd.DataFrame): 
-                DataFrame containing Eurostat Euro yield data. The input DataFrame should have columns 
-                for 'maturity', 'variable', and the yield data for various time periods.
-
-        Returns:
-            pd.DataFrame: 
-                A transformed DataFrame where the yields are pivoted and columns are renamed with a 'eur_yld_' prefix.
-                The index represents dates and columns represent maturities for the Euro yield data.
-
-        Notes
-        -----
-            - The input data is reshaped from a long format to a wide format.
-        """
-        eurostat_euro_yield_df = (pd.melt(frame=eurostat_euro_yield_df,
-                                        id_vars=eurostat_euro_yield_df.columns[1:4], 
-                                        value_vars=eurostat_euro_yield_df.columns[5:])
-                                        .pivot(index="variable", columns="maturity", values="value"))
-
-        eurostat_euro_yield_df.columns.name = None
-        eurostat_euro_yield_df.index.name = "date"
-        eurostat_euro_yield_df.columns = ["eur_yld_" + col for col in eurostat_euro_yield_df.columns]
-
-        return eurostat_euro_yield_df
-    
-
-    def transform_daily_tickers_parallel(self, dir_path: str) -> None:
-        """
-        Applies the daily ticker transformation to all CSV files in the specified directory in parallel. 
-        Then, the transformed files are saved in the corresponding "transformed" directory.
-
-        Args:
-            dir_path (str): The directory path where the CSV files containing historical price data are stored.
-
-        Returns:
-            List: List with all transformed datasets.
-
-        Notes
-        -----
-            - This function processes multiple files in parallel for faster execution.
-            - Each CSV file in the directory will be processed by the `compute_daily_ticker_features` method.
-            - The transformed CSV files will be saved in the corresponding "transformed" directory to 
-            the "extracted" of the original files.
-        """
-        results = Parallel(n_jobs=-1)(
-            delayed(self.read_transform_save)(self.compute_daily_ticker_features,str(ticker_file_path))
-            for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".csv"
-        )
-
-        return results
+#         return df
 
 
     
@@ -729,3 +573,259 @@ class TechnicalIndicators(FileHandler):
             pattern_indicators_df['date'])
 
         return pattern_indicators_df
+    
+
+class TickerExtender(TechnicalIndicators):
+    def calculate_growth_features(self,
+                                  df: pd.DataFrame,
+                                prefix: str = ""
+                                ) -> pd.DataFrame:
+        """
+        Calculates growth features for a given DataFrame of price data.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing at least a 'close' column to calculate growth on.
+            prefix (str, optional): A prefix to prepend to the new growth columns (default is "").
+
+        Returns:
+            pd.DataFrame: The original DataFrame with additional growth feature columns.
+
+        Notes
+        -----
+        - The lags are adjusted for a typical trading calendar (e.g., 1d = 1 trading day, 30d = 22 trading days).
+        - The growth columns are calculated as `(1 + pct_change(lag))`.
+        """
+        df = df.copy()
+
+        df.columns = [col.lower() for col in df.columns]
+
+        # adjusted day lags for trading calendar
+        trading_day_lags = {
+            # 'future_7d': -5, # used for prediction
+            '1d': 1,
+            '3d': 3,
+            '7d': 5,
+            '30d': 22,
+            '90d': 66,
+            '365d': 252
+        }
+
+
+        for lag_name, lag in trading_day_lags.items():
+            df[prefix + 'growth_adj_'+ lag_name] = df["close"].pct_change(lag) + 1
+
+        growth_cols = [col for col in df.columns if "growth" in col]
+
+        return df[growth_cols]
+    
+    def generate_cyclical_features(self, value, period):
+        sine = np.sin(2 * np.pi * value / period)
+        cosine = np.cos(2 * np.pi * value / period)
+        return sine, cosine
+    
+    
+    def add_technical_indicators(self, stocks_df):
+        # need to have same 'utc' time on both sides
+        # https://stackoverflow.com/questions/73964894/you-are-trying-to-merge-on-datetime64ns-utc-and-datetime64ns-columns-if-yo
+        stocks_df['date']= pd.to_datetime(stocks_df['date'], utc=True)
+
+        # Momentum technical indicators
+        df_current_ticker_momentum_indicators = self.talib_get_momentum_indicators_for_one_ticker(stocks_df)
+        df_current_ticker_momentum_indicators["date"]= pd.to_datetime(df_current_ticker_momentum_indicators['date'], utc=True)
+
+        # Vol
+        df_current_ticker_volume_indicators = self.talib_get_volume_volatility_cycle_price_indicators(stocks_df)
+        df_current_ticker_volume_indicators["date"]= pd.to_datetime(df_current_ticker_volume_indicators['date'], utc=True)
+
+        df_current_ticker_pattern_indicators = self.talib_get_pattern_recognition_indicators(stocks_df)
+        df_current_ticker_pattern_indicators["date"]= pd.to_datetime(df_current_ticker_pattern_indicators['date'], utc=True)
+
+        # merge to one df
+        m1 = pd.merge(stocks_df, df_current_ticker_momentum_indicators.reset_index(), how = 'left', on = ["date","symbol"], validate = "one_to_one")
+        m2 = pd.merge(m1, df_current_ticker_volume_indicators.reset_index(), how = 'left', on = ["date","symbol"], validate = "one_to_one")
+        stocks_with_tech_ind = pd.merge(m2, df_current_ticker_pattern_indicators.reset_index(), how = 'left', on = ["date","symbol"], validate = "one_to_one")
+
+        return stocks_with_tech_ind
+    
+
+
+    def compute_daily_ticker_features(self, historical_prices_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Computes a variety of time-based, technical, and growth-related features for daily ticker data.
+
+        Args:
+            historical_prices_df (pd.DataFrame): 
+                The input DataFrame containing historical price data. Required columns include:
+                - 'open': opening price of the asset.
+                - 'high': highest price of the asset during the day.
+                - 'low': lowest price of the asset during the day.
+                - 'close': Closing price of the asset.
+                The DataFrame's index should be a dateTimeIndex representing trading days.
+
+        Returns:
+            pd.DataFrame: 
+                The input DataFrame enriched with additional feature columns, including:
+                - date-related features: 'year', 'month', 'weekday', 'date'.
+                - Growth metrics for various trading day lags (via `calculate_growth_features`).
+                - Simple moving averages: 'SMA10', 'SMA20'.
+                - Moving average trend: 'is_growing_moving_average'.
+                - Relative daily spread: 'high_minus_low_relative'.
+                - Rolling 30-day volatility: '30d_volatility'.
+                - Binary 7-day growth signal: 'is_positive_growth_7d'.
+        """
+        historical_prices_df.columns = [col.lower() for col in historical_prices_df.columns]
+
+        # convert original features to float
+        for col in historical_prices_df.select_dtypes(np.number).columns:
+            historical_prices_df[col] = historical_prices_df[col].astype("float")
+
+
+        # date features
+        historical_prices_df['year'] = historical_prices_df.index.year
+        historical_prices_df['month'] = historical_prices_df.index.month
+        historical_prices_df['weekday'] = historical_prices_df.index.weekday
+        historical_prices_df['quarter_n'] = historical_prices_df.index.quarter
+
+        # filter warning of timezone info lost
+        warnings.filterwarnings("ignore")
+        historical_prices_df['quarter'] = historical_prices_df.index.to_period('Q').to_timestamp()
+        historical_prices_df['month_dt'] = historical_prices_df.index.to_period('M').to_timestamp()
+        warnings.filterwarnings("default") # restore warnings
+
+        historical_prices_df['date'] = historical_prices_df.index.date
+
+        # growth features
+        historical_prices_df = pd.concat([historical_prices_df,
+                                         self.calculate_growth_features(historical_prices_df)],axis=1)
+        # historical_prices_df = self.calculate_growth_features(historical_prices_df)
+
+
+        # Simple moving averages
+        historical_prices_df['SMA10'] = historical_prices_df['close'].rolling(10).mean()
+        historical_prices_df['SMA20'] = historical_prices_df['close'].rolling(20).mean()
+        historical_prices_df['is_growing_moving_average'] = np.where(
+            historical_prices_df['SMA10'] > historical_prices_df['SMA20'], 1, 0
+        )
+
+        # daily spread relative to close
+        historical_prices_df['high_minus_low_relative'] = (
+            (historical_prices_df["high"] - historical_prices_df["low"])
+            / historical_prices_df['close']
+        )
+
+        # 30d rolling volatility
+        historical_prices_df['30d_volatility'] = (
+            historical_prices_df['close'].rolling(30).std()
+            * np.sqrt(252)
+        )
+
+        # continuous growth in 7d
+        historical_prices_df['growth_adj_future_7d'] = 1 - historical_prices_df['close'].pct_change(-5) 
+
+        # binary growth in 7d
+        historical_prices_df['is_positive_growth_7d'] = np.where(
+            historical_prices_df['growth_adj_future_7d'] > 1,
+            1,
+            0
+        )
+
+        # continuous growth in 30d
+        historical_prices_df['growth_adj_future_30d'] = 1 - historical_prices_df['close'].pct_change(-22) 
+
+        # binary growth in 30d
+        historical_prices_df['is_positive_growth_30d'] = np.where(
+            historical_prices_df['growth_adj_future_30d'] > 1,
+            1,
+            0
+        )
+
+        historical_prices_df_tech_indicators = self.add_technical_indicators(historical_prices_df)
+
+        return historical_prices_df_tech_indicators
+    
+
+    def transform_euro_yield_df(self, eurostat_euro_yield_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Transforms the Eurostat Euro yield DataFrame into a more usable format for analysis.
+
+        Args:
+            eurostat_euro_yield_df (pd.DataFrame): 
+                DataFrame containing Eurostat Euro yield data. The input DataFrame should have columns 
+                for 'maturity', 'variable', and the yield data for various time periods.
+
+        Returns:
+            pd.DataFrame: 
+                A transformed DataFrame where the yields are pivoted and columns are renamed with a 'eur_yld_' prefix.
+                The index represents dates and columns represent maturities for the Euro yield data.
+
+        Notes
+        -----
+            - The input data is reshaped from a long format to a wide format.
+        """
+        
+
+        eurostat_euro_yield_df = (pd.melt(frame=eurostat_euro_yield_df,
+                                        id_vars=eurostat_euro_yield_df.columns[1:4], 
+                                        value_vars=eurostat_euro_yield_df.columns[5:])
+                                        .pivot(index="variable", columns="maturity", values="value"))
+
+        eurostat_euro_yield_df.columns.name = None
+        eurostat_euro_yield_df.index.name = "date"
+
+        eurostat_euro_yield_df.index = pd.to_datetime(eurostat_euro_yield_df.index, utc=True, format="%Y-%m-%d")
+
+        eurex = mcal.get_calendar('EUREX') 
+        new_index = eurex.schedule(start_date=eurostat_euro_yield_df.index[-1]+pd.DateOffset(days=1), 
+                                   end_date=eurostat_euro_yield_df.index[-1]+pd.DateOffset(days=2)).index
+
+        eurostat_euro_yield_df = pd.concat([eurostat_euro_yield_df,pd.DataFrame(columns=eurostat_euro_yield_df.columns, index=new_index)],axis=0).shift(2)
+
+        eurostat_euro_yield_df.index = pd.to_datetime(eurostat_euro_yield_df.index, utc=True, format="%Y-%m-%d")
+
+        eurostat_euro_yield_df = eurostat_euro_yield_df.iloc[2:,:]
+
+        eurostat_euro_yield_df.columns = ["eur_yld_" + col + "_prev_2d" for col in eurostat_euro_yield_df.columns]
+
+        return eurostat_euro_yield_df
+
+    def transform_daily_tickers_parallel(self, dir_path: str) -> None:
+        """
+        Applies the daily ticker transformation to all CSV files in the specified directory in parallel. 
+        Then, the transformed files are saved in the corresponding "transformed" directory.
+
+        Args:
+            dir_path (str): The directory path where the CSV files containing historical price data are stored.
+
+        Returns:
+            List: List with all transformed datasets.
+
+        Notes
+        -----
+            - This function processes multiple files in parallel for faster execution.
+            - Each CSV file in the directory will be processed by the `compute_daily_ticker_features` method.
+            - The transformed CSV files will be saved in the corresponding "transformed" directory to 
+            the "extracted" of the original files.
+        """
+        results = Parallel(n_jobs=-1)(
+            delayed(self.read_transform_save)(self.compute_daily_ticker_features,str(ticker_file_path))
+            for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".csv"
+        )
+
+        return results
+    
+    def merge_tickers(self, ticker_df_list: List, verbose: Optional[bool] = False):
+        merged_tickers_df = pd.DataFrame()
+
+        for ticker_df in tqdm(ticker_df_list):
+            # print progress
+            if verbose:
+                ticker_name = ticker_df["symbol"].unique()[0]
+                tqdm.write(f"Current ticker being processed is: {ticker_name}")
+
+            merged_tickers_df = pd.concat([merged_tickers_df,ticker_df], ignore_index = False)
+        
+        return merged_tickers_df
+
+
+class MacroIndicatorTransformer():
+    pass

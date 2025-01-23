@@ -4,10 +4,10 @@ from fastapi import FastAPI
 import numpy as np
 import pandas as pd
 
-threshold = 0.6 # TO PUT INSIDE A CONFIG OR SIMILAR
+threshold = 0.5 # TO PUT INSIDE A CONFIG OR SIMILAR
 
-model = joblib.load("predict/mock_model.joblib")
-data = pd.read_parquet("predict/mock_data.parquet")
+model = joblib.load("mock_model.joblib")
+data = pd.read_parquet("mock_data.parquet")
 class_names = np.array(["buy","sell"])
 
 app = FastAPI()
@@ -16,12 +16,19 @@ app = FastAPI()
 def reed_root():
     return {"message":"API working"}
 
-@app.get("/predict")
+@app.post("/predict")
 def predict(data: dict):
     # pd.DataFrame(mock_data.to_dict(orient="records"))
-    data_to_predict = pd.DataFrame(data).values
+    data_to_predict = pd.DataFrame(data)
     
     y_probs = model.predict_proba(data_to_predict)[:,1]
 
-    y_pred = 
+    y_pred = (y_probs > threshold).astype(int)
+
+    data_to_predict["buy"] = y_pred
+
+    return {"predictions": y_pred.tolist()}
+    
+    
+
 

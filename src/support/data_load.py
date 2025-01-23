@@ -21,7 +21,14 @@ class MongoDBHandler:
 
     def connect_to_database(self, db_name: str):
         self.client = MongoClient(self.uri, server_api=ServerApi('1'))
-        self.db = self.client[db_name]
+        try:
+            self.client.admin.command('ping')
+            print("Pinged your deployment. You successfully connected to MongoDB!")
+            self.db = self.client[db_name]
+        except Exception as e:
+            print(e)
+
+        
 
     def create_collection(self, collection_name: str):
         """
@@ -42,7 +49,9 @@ class MongoDBHandler:
         :param documents: List of documents to insert
         """
         collection = self.db[collection_name]
-        collection.insert_many(documents)
+        
+        return collection.insert_many(documents)
+
 
     def close_connection(self):
         """Close the MongoDB connection."""

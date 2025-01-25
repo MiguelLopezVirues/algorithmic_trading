@@ -28,6 +28,9 @@ EU:
   - "Luxembourg"
   - "Czech Republic"
   - "Iceland"
+  - "EU"
+  - "European Union"
+  - "Europe"
 
 ASIA:
   - "China"
@@ -44,6 +47,7 @@ ASIA:
   - "Malaysia"
   - "Pakistan"
   - "Cambodia"
+  - "Asia"
 
 MIDDLE EAST:
   - "Saudi Arabia"
@@ -61,3 +65,6 @@ OTHERS:
   - "South Africa"
   - "Norway"
   - "Russia"
+
+GLOBAL:
+  - "Global"

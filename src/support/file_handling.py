@@ -1,29 +1,22 @@
-import pandas as pd
 from pathlib import Path
 import re
 from typing import Callable, Optional
-
-class EatD:
-    pass
-
-
-# TO-DO:
-# [] add error-handling
+import polars as pl 
+import os
 
 class FileHandler:
-    def read_csv_file(self, file_path: str) -> pd.DataFrame:
+    def read_csv_file(self, file_path: str) -> pl.DataFrame:  
         """
-        Reads a CSV file and parses its index as a datetime.
-        
-        Args:
-            file_path (str): Path to the CSV file.
-        
-        Returns:
-            pd.DataFrame: The loaded DataFrame with a datetime index.
+        Reads a CSV file and parses its first column as a datetime.
         """
-        df = pd.read_csv(file_path, index_col=0)
-        df.index = pd.to_datetime(df.index, utc=True, format="%Y-%m-%d")
-        return df   
+        df = pl.read_csv(file_path)
+        
+        # Handle index column (first column) from pandas CSV
+        first_col = df.columns[0]
+
+        return df.rename({first_col: "datetime"}).with_columns(
+            pl.col("datetime").str.to_datetime()
+        )
     
     def list_all_files(self, directory: str):
         """
@@ -35,27 +28,27 @@ class FileHandler:
         Returns:
             List: List with all files, nested or not, inside the directory.
         """
+        base_dir = os.path.dirname(__file__)
+        directory = os.path.join(base_dir, directory)
         return [file for file in Path(directory).rglob('*') if file.is_file()]
 
-    def save_dataframe_csv_file(self, df: pd.DataFrame, save_path: str) -> None:
+    def save_dataframe_csv_file(self, df: pl.DataFrame, save_path: Path) -> None:  
         """
         Saves a DataFrame to a CSV file, creating necessary directories.
         
         Args:
-            df (pd.DataFrame): The DataFrame to save.
+            df (pl.DataFrame): The DataFrame to save.
             save_path (str): Path to save the CSV file.
         """
-        save_path_dir = Path(save_path).parent
-        save_path_dir.mkdir(parents=True, exist_ok=True)
-
-        df.to_csv(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        df.write_csv(save_path)
 
     def read_transform_save(
         self,
-        transform_function: Callable[[pd.DataFrame], pd.DataFrame], 
+        transform_function: Callable[[pl.DataFrame], pl.DataFrame],  
         read_path: str, 
         save_path: Optional[str] = None
-    ) -> pd.DataFrame:
+    ) -> pl.DataFrame:  # Polars return type
         """
         Reads a CSV, applies a transformation function, and saves the result.
 
@@ -67,8 +60,9 @@ class FileHandler:
         Returns:
             pd.DataFrame: Transformed DataFrame.
         """
-
         # Read
+        base_dir = os.path.dirname(__file__)
+        read_path = os.path.join(base_dir, read_path)
         df = self.read_csv_file(read_path)
 
         # Transform
@@ -76,8 +70,7 @@ class FileHandler:
 
         # Save
         if not save_path:
-            save_path = re.sub(r"extracted","transformed",read_path)
+            save_path = Path(re.sub(r"extracted","transformed",read_path))
         
         self.save_dataframe_csv_file(df, save_path)
-
         return df

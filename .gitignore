@@ -18,3 +18,7 @@ dnd
 
 # dataset
 *dataset.parquet
+
+# pandas_backup
+*pandas_backup*
+

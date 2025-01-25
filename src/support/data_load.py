@@ -30,7 +30,7 @@ class MongoDBHandler:
 
         
 
-    def create_collection(self, collection_name: str):
+    def check_create_collection(self, collection_name: str):
         """
         Create a collection in the database if it doesn't already exist.
         

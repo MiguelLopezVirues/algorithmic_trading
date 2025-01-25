@@ -1,37 +1,87 @@
 import os
-from typing import List, Optional
-import pandas as pd
+from typing import List, Optional, Dict, Tuple
+import polars as pl  
 import yfinance as yf
 from joblib import Parallel, delayed
+import pandas_datareader as pdr
 
-from .utils import get_region
+from .utils import get_region, get_index_country
 from pathlib import Path
 
 from .file_handling import FileHandler
 
+base_dir = os.path.dirname(__file__)
 
-# TO-DO:
-# [] add error-handling
-
-class TickersFetcher(FileHandler):
-    # def save_dataframe(self, dataframe: pd.DataFrame, save_path: str) -> None:
-    #     """
-    #     Saves a DataFrame to a CSV file, creating necessary directories.
+class YahooFinanceFetcher(FileHandler):
+    def fetch_historical_prices(self,
+                                symbol: str,
+                                interval: str = "1d"
+                                ) -> pl.DataFrame:
         
-    #     Args:
-    #         df (pd.DataFrame): The DataFrame to save.
-    #         save_path (str): Path to save the CSV file.
-    #     """
-    #     save_path_dir = Path(save_path).parent
-    #     save_path_dir.mkdir(parents=True, exist_ok=True)
+        # Download historical data and convert to polars DataFrame
+        historical_prices_df = pl.from_pandas(  # Convert to polars
+            yf.download( 
+                tickers=symbol,
+                period="max",
+                interval=interval,
+                multi_level_index=False,
+                progress=False
+            ), 
+            include_index=True
+        )
 
-    #     dataframe.to_csv(save_path)
+        # Standardize column names and add symbol
+        historical_prices_df = (
+            historical_prices_df
+            .rename({col: col.lower() for col in historical_prices_df.columns})
+            .with_columns(pl.lit(symbol).alias("symbol"))
+        )
 
-    def fetch_and_save_historical_prices(self,
-                                         symbol: str,
-                                        interval: str = "1d",
-                                        save_path: Optional[str] = None
-                                        ) -> pd.DataFrame:
+        return historical_prices_df
+
+    def fetch_ticker_info(self,
+                        symbol: str,
+                        historical_prices_df: pl.DataFrame
+                        ) -> Tuple[pl.DataFrame, Dict]: 
+        
+        # get fundamentals information
+        ticker = yf.Ticker(symbol)
+        currency = ticker.info.get("currency", "unknown")
+        historical_prices_df = historical_prices_df.with_columns(
+            pl.lit(currency).alias("currency") # pl.lit() prevents Polars from thinking the currency value is a column name
+        )
+
+        # if EQUITY (stock) add stock specific info
+        quote_type = ticker.info.get("quoteType")
+
+        if quote_type == "EQUITY":
+            country = ticker.info.get("country", "").lower().replace(" ", "_")
+            region = get_region(ticker.info["country"])
+            
+            historical_prices_df = historical_prices_df.with_columns([
+                pl.lit(ticker.info.get("industryKey", "unknown")).alias("industry"),
+                pl.lit(ticker.info.get("sectorKey", "unknown")).alias("sector")
+            ])
+        else:
+            
+            country = get_index_country(symbol)
+            region = get_region(country)
+
+        historical_prices_df = historical_prices_df.with_columns([
+                pl.lit(country).alias("country"),
+                pl.lit(region).alias("region"),
+        ])
+
+
+        # besides df, return quote_type and region for save_path modification outside function
+        return historical_prices_df, quote_type, region
+
+    def fetch_save_prices_info(
+        self,
+        symbol: str,
+        interval: str = "1d",
+        save_path: Optional[str] = None
+    ) -> pl.DataFrame:  
         """
         Downloads historical price data for a given symbol from Yahoo Finance and saves it as a CSV file.
 
@@ -46,62 +96,75 @@ class TickersFetcher(FileHandler):
 
         Returns
         -------
-        pd.DataFrame
-            A pandas DataFrame containing the downloaded historical prices with an added "symbol" column.
+        pl.DataFrame
+            A polars DataFrame containing the downloaded historical prices with added columns.
         """
-        historical_prices = yf.download(
-            tickers=symbol,
-            period="max",
-            interval=interval,
-            multi_level_index=False,
-            progress=False
+        # Download historical data and convert to polars DataFrame
+        historical_prices_df = self.fetch_historical_prices(symbol=symbol,
+                                                         interval=interval)
+        
+        # Add non-historical fundamental information
+        historical_prices_df, quote_type, region = self.fetch_ticker_info(symbol=symbol, 
+                                                                        historical_prices_df=historical_prices_df)
+        
+
+        # Handle path construction and saving
+        if not save_path:
+            # Different path for stocks (EQUITY) or macroindicators
+            if quote_type == "EQUITY": # stocks
+                save_file = f"OHLCV/{region}/{symbol}.csv"
+
+            else:  # macroindicators
+                save_file = f"macro/{symbol}.csv"
+
+            save_path = Path(base_dir) / "../../data/extracted" / save_file
+
+        else:
+            save_path = Path(save_path) / f"{symbol}.csv"
+
+        # Create directories and save
+        self.save_dataframe_csv_file(historical_prices_df, save_path)
+
+        return historical_prices_df
+
+    def fetch_save_prices_info_parallel(
+        self,
+        symbols_list: List[str],
+        interval: str = "1d",
+        save_path: str = None
+    ) -> None:
+        """
+        Downloads historical prices in parallel for a list of symbols and saves each as a CSV.
+        """
+        Parallel(n_jobs=-1, backend='loky')(
+            delayed(self.fetch_save_prices_info)(symbol, interval, save_path)
+            for symbol in symbols_list
         )
 
 
-        historical_prices.columns = [col.lower() for col in historical_prices.columns]
-        historical_prices["symbol"] = symbol
+class PDRFetcher(FileHandler):
+    def fetch_historical_data(self, symbol: str, symbol_lag: int = None,  start: str = "1955-01-01", save_path: str = None):
+        pdr_data = pl.from_pandas(pdr.DataReader(symbol, "fred", start=start), include_index=True)
 
+        if symbol_lag:
+            pdr_data = pdr_data.select("DATE",
+                                        pl.exclude("DATE").name.suffix("_prevmonth"))\
+                                .with_columns(pl.col("DATE").dt.offset_by(f"{symbol_lag}mo"))
 
-        ticker = yf.Ticker(symbol)
-        if ticker.info["quoteType"] == "EQUITY":
-            region = get_region(ticker.info["country"])
-            historical_prices["country"] = ticker.info["country"].lower().replace(" ","_")
-            historical_prices["region"] = region
-            historical_prices["industry"] = ticker.info["industryKey"]
-            historical_prices["sector"] = ticker.info["sectorKey"]
-            save_file = f"OHLCV/{region}/{symbol}.csv"
-        else: # INDEX
-            save_file = f"macro/{symbol}.csv"
+        save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/{symbol}.csv"
 
-        historical_prices["currency"] = ticker.info["currency"]
+        self.save_dataframe_csv_file(pdr_data, save_path)
 
-
-        # Save dataframe as csv
-        if not save_path:
-            save_path = f"../data/extracted/{save_file}"
-        else:
-            save_path = str(save_path) + f"/{symbol}.csv"
-        
-        self.save_dataframe_csv_file(historical_prices, save_path)
-
-        return historical_prices
-
-    def fetch_and_save_historical_prices_parallel(self,
-                                                  symbols_list: List[str],
-                                                interval: str = "1d",
-                                                save_path: str = None
-                                                ) -> None:
+        return pdr_data
+    
+    def fetch_save_prices_info_parallel(
+                                        self,
+                                        symbols_dict
+                                    ) -> None:
         """
         Downloads historical prices in parallel for a list of symbols and saves each as a CSV.
-
-        Parameters
-        ----------
-        symbols_list : List[str]
-            A list of ticker symbols to download.
-        interval : str, optional
-            The time interval between data points (default is "1d").
         """
         Parallel(n_jobs=-1, backend='loky')(
-            delayed(self.fetch_and_save_historical_prices)(symbol, interval, save_path)
-            for symbol in symbols_list
+            delayed(self.fetch_historical_data)(symbol, symbol_lag)
+            for symbol, symbol_lag in symbols_dict
         )

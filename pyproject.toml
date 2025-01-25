@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "altair>=5.5.0",
     "cupy-cuda12x>=13.3.0",
     "eurostat>=1.1.1",
     "fastapi>=0.115.6",
@@ -24,6 +25,7 @@ dependencies = [
     "plotly>=5.24.1",
     "pmdarima>=2.0.4",
     "polars>=1.19.0",
+    "pyarrow>=19.0.0",
     "pymongo[srv]>=4.10.1",
     "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.0.1",

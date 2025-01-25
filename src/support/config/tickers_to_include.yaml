@@ -1,4 +1,4 @@
-TICKERS:
+STOCKS:
     - "MSFT"
     - "AAPL"
     - "GOOG"
@@ -32,3 +32,22 @@ TICKERS:
     - "ITC.NS"
     - "HINDUNILVR.NS"
     - "LT.NS"
+
+MACRO:
+- "^GDAXI"
+- "^GSPC"
+- "^DJI"
+- "EPI" 
+- ^VIX
+- GC=F
+- CL=F
+- BZ=F
+- BTC-USD
+
+MACRO_PDR:
+  DGS1: null
+  DGS5: null
+  DGS10: null
+  CPILFESL: 1 # 1 month lag
+  FEDFUNDS: 1 # 1 month lag
+  GDPPOT: null

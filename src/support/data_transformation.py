@@ -687,58 +687,37 @@ class TickerExtender(TechnicalIndicators):
         -----
             - The input data is reshaped from a long format to a wide format.
         """
-        # Melt and pivot operations
-        melted = eurostat_euro_yield_df.melt(
-            id_vars=eurostat_euro_yield_df.columns[1:4],  # Original id_vars (columns 1-3)
-            value_vars=eurostat_euro_yield_df.columns[5:]  # Original value_vars (columns 5+)
+        # Unpivot and pivot operations
+        unpivotted = eurostat_euro_yield_df.unpivot(
+            index= eurostat_euro_yield_df.columns[1:4],  # Original id_vars (columns 1-3)
+            on = eurostat_euro_yield_df.columns[5:]  # Original value_vars (columns 5+)
         )
-        
+
         # Pivot to wide format
-        pivoted = melted.pivot(
+        pivoted = unpivotted.pivot(
             values="value",
             index="variable",
-            columns="maturity",
+            on="maturity",
             aggregate_function="first"
         )
-        
+
         # Clean up and date handling
         euro_yield = (
             pivoted
             .rename({"variable": 'datetime'})
             #.with_columns(pl.col('datetime').str.to_datetime())
         )
-        
-        # Calendar operations
-        eurex = mcal.get_calendar('EUREX')
-        last_date = euro_yield['datetime'].max()
-        
-        # Generate new dates using pandas market calendar
-        new_dates = eurex.schedule(
-            start_date=last_date + pd.DateOffset(days=1),
-            end_date=last_date + pd.DateOffset(days=2)
-        ).index.tz_convert("UTC")
-        
-        # Create empty Polars DataFrame for new dates
-        new_rows = pl.DataFrame({
-            'datetime': pl.from_pandas(new_dates.to_series()).cast(pl.Datetime()),
-        }).with_columns(**{col: None for col in euro_yield.columns if col != 'datetime'})
-        
-        # Combine and shift
-        combined = pl.concat([euro_yield, new_rows]).sort('datetime')
-        
-        # Shift values and slice
-        shifted = combined.select(
-            pl.all().shift(2).alias("shifted_*")
-        ).rename({f"shifted_{col}": col for col in combined.columns})
-        
-        final_df = shifted.slice(2, len(combined) - 2)
+
+        euro_yield = euro_yield.select(pl.col("datetime").str.to_datetime().dt.add_business_days(2), 
+                                        pl.exclude("datetime").cast(pl.Float32))
         
         # Rename columns
-        return final_df.rename({
-            col: f"eur_yld_{col}_prev_2d" 
-            for col in final_df.columns 
-            if col not in ['datetime']
-        })
+        euro_yield = euro_yield.rename({
+                        col: f"eur_yld_{col}_prev_2d" 
+                        for col in euro_yield.columns 
+                        if col not in ['datetime']
+                    })
+        return euro_yield
 
     def transform_daily_tickers_parallel(self, dir_path: str) -> None:
         """

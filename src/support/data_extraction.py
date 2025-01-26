@@ -4,6 +4,7 @@ import polars as pl
 import yfinance as yf
 from joblib import Parallel, delayed
 import pandas_datareader as pdr
+import eurostat
 
 from .utils import get_region, get_index_country
 from pathlib import Path
@@ -140,16 +141,20 @@ class YahooFinanceFetcher(FileHandler):
             delayed(self.fetch_save_prices_info)(symbol, interval, save_path)
             for symbol in symbols_list
         )
+    
 
 
 class PDRFetcher(FileHandler):
-    def fetch_historical_data(self, symbol: str, symbol_lag: int = None,  start: str = "1955-01-01", save_path: str = None):
+    def fetch_historical_data(self, symbol: str, symbol_lag: Tuple[int, str],  start: str = "1955-01-01", save_path: str = None):
         pdr_data = pl.from_pandas(pdr.DataReader(symbol, "fred", start=start), include_index=True)
+        
+        pdr_data = pdr_data.rename({col: col.lower() for col in pdr_data.columns})
 
-        if symbol_lag:
-            pdr_data = pdr_data.select("DATE",
-                                        pl.exclude("DATE").name.suffix("_prevmonth"))\
-                                .with_columns(pl.col("DATE").dt.offset_by(f"{symbol_lag}mo"))
+        if symbol_lag[0]:
+            lag, period = symbol_lag
+            pdr_data = pdr_data.select("date",
+                                        pl.exclude("date").name.suffix(f"_prev{lag}_{period}"))\
+                                .with_columns(pl.col("date").dt.offset_by(f"{lag}{period}"))
 
         save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/{symbol}.csv"
 
@@ -166,5 +171,20 @@ class PDRFetcher(FileHandler):
         """
         Parallel(n_jobs=-1, backend='loky')(
             delayed(self.fetch_historical_data)(symbol, symbol_lag)
-            for symbol, symbol_lag in symbols_dict
+            for symbol, symbol_lag in symbols_dict.items()
         )
+
+
+def fetch_euro_yield():
+    filter_pars = {"yld_curv": ["SPOT_RT"],
+    "bonds": ["CGB_EA_AAA"],
+    "maturity": ["Y1","Y5","Y10"]}
+
+    code = 'irt_euryld_d'
+    eurostat_euro_yield_df = pl.from_pandas(eurostat.get_data_df(code, flags=False, filter_pars=filter_pars,  verbose=True))
+
+    save_path = Path(base_dir) / f"../../data/extracted/macro/eurostat_euro_yield.csv"
+
+    eurostat_euro_yield_df.write_csv(save_path)
+
+    return eurostat_euro_yield_df

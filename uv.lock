@@ -13,9 +13,11 @@ source = { virtual = "." }
 dependencies = [
     { name = "altair" },
     { name = "cupy-cuda12x" },
+    { name = "cython" },
     { name = "eurostat" },
     { name = "fastapi" },
     { name = "fastparquet" },
+    { name = "fear-and-greed" },
     { name = "finplot" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -38,6 +40,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "seaborn" },
     { name = "sktime" },
+    { name = "statsmodels" },
     { name = "ta-lib" },
     { name = "tqdm" },
     { name = "tqdm-joblib" },
@@ -50,9 +53,11 @@ dependencies = [
 requires-dist = [
     { name = "altair", specifier = ">=5.5.0" },
     { name = "cupy-cuda12x", specifier = ">=13.3.0" },
+    { name = "cython", specifier = ">=3.0.11" },
     { name = "eurostat", specifier = ">=1.1.1" },
     { name = "fastapi", specifier = ">=0.115.6" },
     { name = "fastparquet", specifier = ">=2024.11.0" },
+    { name = "fear-and-greed", specifier = ">=0.4" },
     { name = "finplot", specifier = ">=1.9.6" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
@@ -75,6 +80,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "sktime", specifier = ">=0.35.0" },
+    { name = "statsmodels", specifier = ">=0.14.4" },
     { name = "ta-lib", specifier = ">=0.6.1" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "tqdm-joblib", specifier = ">=0.0.4" },
@@ -160,6 +166,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b3/ca/824b1195773ce6166d388573fc106ce56d4a805bd7427b624e063596ec58/beautifulsoup4-4.12.3.tar.gz", hash = "sha256:74e3d1928edc070d21748185c46e3fb33490f22f52a3addee9aee0f4f7781051", size = 581181 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/fe/e8c672695b37eecc5cbf43e1d0638d88d66ba3a44c4d321c796f4e59167f/beautifulsoup4-4.12.3-py3-none-any.whl", hash = "sha256:b80878c9f40111313e55da8ba20bdba06d8fa3969fc68304167741bbf9e082ed", size = 147925 },
+]
+
+[[package]]
+name = "cattrs"
+version = "24.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/65/af6d57da2cb32c076319b7489ae0958f746949d407109e3ccf4d115f147c/cattrs-24.1.2.tar.gz", hash = "sha256:8028cfe1ff5382df59dd36474a86e02d817b06eaf8af84555441bac915d2ef85", size = 426462 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/d5/867e75361fc45f6de75fe277dd085627a9db5ebb511a87f27dc1396b5351/cattrs-24.1.2-py3-none-any.whl", hash = "sha256:67c7495b760168d931a10233f979b28dc04daf853b30752246f4f8471c6d68d0", size = 66446 },
 ]
 
 [[package]]
@@ -720,6 +740,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7d/a7/ee82bb55b6c0ca30286dac1e19ee9417a17d2d1de3b13bb0f20cefb86086/fastrlock-0.8.3-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:c6e5bfecbc0d72ff07e43fed81671747914d6794e0926700677ed26d894d4f4f", size = 50942 },
     { url = "https://files.pythonhosted.org/packages/63/1d/d4b7782ef59e57dd9dde69468cc245adafc3674281905e42fa98aac30a79/fastrlock-0.8.3-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:2a83d558470c520ed21462d304e77a12639859b205759221c8144dd2896b958a", size = 52044 },
     { url = "https://files.pythonhosted.org/packages/28/a3/2ad0a0a69662fd4cf556ab8074f0de978ee9b56bff6ddb4e656df4aa9e8e/fastrlock-0.8.3-cp313-cp313-win_amd64.whl", hash = "sha256:8d1d6a28291b4ace2a66bd7b49a9ed9c762467617febdd9ab356b867ed901af8", size = 30472 },
+]
+
+[[package]]
+name = "fear-and-greed"
+version = "0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "requests-cache" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/75/7e/5e2da52822046c0c42ac2a71bf33e7a3ebdcdb48987757a825a2db4644ed/fear-and-greed-0.4.tar.gz", hash = "sha256:d997f049180442ca4bc33518e9d3b5b8fd140151de81826e78743eceb373ea1c", size = 3432 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/be/cbcdc55b93bb7207a63015ad21a5fd7697f7010657c9d2aab8d70310c740/fear_and_greed-0.4-py3-none-any.whl", hash = "sha256:f15fbd3ce89762c15d8649b56e43acaa16424c9c5013efa896d61a3d7f863386", size = 3890 },
 ]
 
 [[package]]
@@ -2207,6 +2240,23 @@ wheels = [
 ]
 
 [[package]]
+name = "requests-cache"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cattrs" },
+    { name = "platformdirs" },
+    { name = "requests" },
+    { name = "url-normalize" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1a/be/7b2a95a9e7a7c3e774e43d067c51244e61dea8b120ae2deff7089a93fb2b/requests_cache-1.2.1.tar.gz", hash = "sha256:68abc986fdc5b8d0911318fbb5f7c80eebcd4d01bfacc6685ecf8876052511d1", size = 3018209 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/2e/8f4051119f460cfc786aa91f212165bb6e643283b533db572d7b33952bd2/requests_cache-1.2.1-py3-none-any.whl", hash = "sha256:1285151cddf5331067baa82598afe2d47c7495a1334bfe7a7d329b43e9fd3603", size = 61425 },
+]
+
+[[package]]
 name = "rpds-py"
 version = "0.22.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2634,6 +2684,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/34/943888654477a574a86a98e9896bae89c7aa15078ec29f490fef2f1e5384/tzdata-2024.2.tar.gz", hash = "sha256:7d85cc416e9382e69095b7bdf4afd9e3880418a2413feec7069d533d6b4e31cc", size = 193282 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/ab/7e5f53c3b9d14972843a647d8d7a853969a58aecc7559cb3267302c94774/tzdata-2024.2-py2.py3-none-any.whl", hash = "sha256:a48093786cdcde33cad18c2555e8532f34422074448fbc874186f0abd79565cd", size = 346586 },
+]
+
+[[package]]
+name = "url-normalize"
+version = "1.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/ea/780a38c99fef750897158c0afb83b979def3b379aaac28b31538d24c4e8f/url-normalize-1.4.3.tar.gz", hash = "sha256:d23d3a070ac52a67b83a1c59a0e68f8608d1cd538783b401bc9de2c0fac999b2", size = 6024 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/1c/6c6f408be78692fc850006a2b6dea37c2b8592892534e09996e401efc74b/url_normalize-1.4.3-py2.py3-none-any.whl", hash = "sha256:ec3c301f04e5bb676d333a7fa162fa977ad2ca04b7e652bfc9fac4e405728eed", size = 6804 },
 ]
 
 [[package]]

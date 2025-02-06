@@ -10,6 +10,7 @@ from typing import List, Optional
 import pandas_market_calendars as mcal
 import warnings
 from tqdm import tqdm
+from functools import partial
 
 from .file_handling import FileHandler
 
@@ -518,6 +519,8 @@ class TickerExtender(TechnicalIndicators):
             '1d': 1,
             '3d': 3,
             '7d': 5,
+            '14d': 10,
+            '21d': 15,
             '30d': 22,
             '90d': 66,
             '365d': 252
@@ -529,9 +532,277 @@ class TickerExtender(TechnicalIndicators):
                 (pl.col("close").pct_change(lag) + 1).alias(f"{prefix}growth_adj_{lag_name}")
             )
 
-        growth_cols = pl.col("^growth.*$")
+
+        growth_cols = df.select([col for col in df.columns if "growth" in col])
 
         return df.select(growth_cols)
+    
+    def calculate_lagged_features(self,
+                                    df: pl.DataFrame,
+                                    prefix: str = "",
+                                    growth: bool = False
+                                    ) -> pl.DataFrame:
+        """
+        Calculates growth features for a given DataFrame of price data.
+
+        Args:
+            df (pl.DataFrame): DataFrame containing at least a 'close' column to calculate growth on.
+            prefix (str, optional): A prefix to prepend to the new growth columns (default is "").
+
+        Returns:
+            pl.DataFrame: The original DataFrame with additional growth feature columns.
+
+        Notes
+        -----
+        - The lags are adjusted for a typical trading calendar (e.g., 1d = 1 trading day, 30d = 22 trading days).
+        - The growth columns are calculated as `(1 + pct_change(lag))`.
+        """
+
+
+        # Adjusted day lags for trading calendar
+        trading_day_lags = {
+            '1d': 1,
+            '3d': 3,
+            '7d': 5,
+            '14d': 10,
+            '21d': 15,
+            '30d': 22,
+            '90d': 66,
+            '365d': 252
+        }
+
+        # Create one lagged growth feature per lag
+        for lag_name, lag in trading_day_lags.items():
+            if growth:
+                df = df.with_columns(
+                    (pl.col("close").pct_change(lag) + 1).alias(f"{prefix}growth_{lag_name}")
+                )
+            else:
+                df = df.with_columns(
+                    (pl.col("close").shift(lag) + 1).alias(f"{prefix}lag_{lag_name}")
+                )
+
+        return df
+    
+    def calculate_lagged_features_pipe(self,
+                                    df: pl.DataFrame,
+                                    prefix: str = "",
+                                    lags: List[int] = [],
+                                    add_default: bool = False,
+                                    default_lags: List[int] = [5,10,22,66],
+                                    ticker: bool = False,
+                                    growth: bool = False
+                                    ) -> pl.DataFrame:
+        """
+        Calculates growth features for a given DataFrame of price data.
+
+        Args:
+            df (pl.DataFrame): DataFrame containing at least a 'close' column to calculate growth on.
+            prefix (str, optional): A prefix to prepend to the new growth columns (default is "").
+
+        Returns:
+            pl.DataFrame: The original DataFrame with additional growth feature columns.
+
+        Notes
+        -----
+        - The lags are adjusted for a typical trading calendar (e.g., 1d = 1 trading day, 30d = 22 trading days).
+        - The growth columns are calculated as `(1 + pct_change(lag))`.
+        """
+
+        if prefix:
+            prefix += "_"
+
+
+        if not lags and add_default:
+            lags = list(set(lags + default_lags))
+
+        # Create one lagged growth feature per lag
+        for lag in lags:
+            if growth:
+                df = df.with_columns(
+                    (pl.col("close").pct_change(lag)).alias(f"{prefix}{lag}d_lag_growth")
+                )
+            else: 
+                df = df.with_columns(
+                    (pl.col("close").shift(lag)).alias(f"{prefix}{lag}d_lag")
+                )
+
+        # lag_cols = df.select([col for col in df.columns if "lag" in col])
+
+        return df
+    
+    def calculate_rolling_features(self, df: pl.DataFrame,
+                                    prefix: str = "",
+                                    ticker: bool = True
+                                    ) -> pl.DataFrame:
+
+        df = df.select(
+                # Moving averages
+                pl.col('close').rolling_mean(10).alias(f"{prefix}SMA10"),
+                pl.col('close').rolling_mean(22).alias(f'{prefix}SMA22'),
+                pl.col('close').rolling_mean(66).alias(f'{prefix}SMA66'),
+                # Rolling 30d volatility annualized
+                (pl.col('close').rolling_std(22) * np.sqrt(252)).alias(f'{prefix}30d_volatility'),
+                # Spread relative to close price
+                ((pl.col("high") - pl.col("low")) / pl.col("close")).alias(f'{prefix}high_minus_low_relative') if ticker else None,
+                ((pl.col("close") - pl.col("low")) / (pl.col("high") - pl.col("low"))).alias(f'{prefix}_close_relative_high_low'),
+            ).with_columns( # Growing moving average
+            (pl.col(f"{prefix}SMA10") > pl.col(f'{prefix}SMA22')).cast(pl.Int8).alias(f'{prefix}is_growing_moving_average')
+        ).select(pl.exclude("literal")) # drop the None column
+
+        return df
+    
+    def calculate_rolling_features_experiment(self, df: pl.DataFrame,
+                                                prefix: str = "",
+                                                ticker: bool = True
+                                                ) -> pl.DataFrame:
+
+        if prefix != "":
+            prefix += "_"
+
+
+        if ticker:
+            df = df.select(
+                    pl.col('close').rolling_mean(10).alias(f"{prefix}SMA10"),
+                    pl.col('close').rolling_mean(22).alias(f'{prefix}SMA22'),
+                    pl.col('close').rolling_mean(66).alias(f'{prefix}SMA33'),
+                    # Rolling 30d volatility annualized
+                    (pl.col('close').rolling_std(22) / pl.col('close').rolling_mean(22)).alias(f'{prefix}30d_volatility'),
+                    ((pl.col("high") - pl.col("low")) / pl.col("close")).alias(f'{prefix}high_minus_low_relative'),
+                    ((pl.col("close") - pl.col("low")) / (pl.col("high") - pl.col("low"))).alias(f'{prefix}_close_relative_high_low'),
+                    pl.col("volume").rolling_sum(5).alias("volume_last_5"),
+                    pl.col("volume").rolling_sum(10).alias("volume_last_10"),
+                    pl.col("volume").rolling_sum(15).alias("volume_last_15"),
+                    (pl.col("close").cum_max() / pl.col("close")).alias("pct_ATH"),
+                    (pl.col("close").cum_min() / pl.col("close")).alias("pct_ATL"),
+                    (pl.col("close").rolling_max(22) / pl.col("close")).alias("pct_1_month_high"),
+                    (pl.col("close").rolling_max(66) / pl.col("close")).alias("pct_3_month_high"),
+                    (pl.col("close").rolling_max(126) / pl.col("close")).alias("pct_6_month_high"),
+                    (pl.col("close").rolling_max(252) / pl.col("close")).alias("pct_1_year_high"),
+                    (pl.col("close").rolling_max(1260) / pl.col("close")).alias("pct_5_year_high"),
+                    (pl.col("close").rolling_min(22) / pl.col("close")).alias("pct_1_month_low"),
+                    (pl.col("close").rolling_min(66) / pl.col("close")).alias("pct_3_month_low"),
+                    (pl.col("close").rolling_min(126) / pl.col("close")).alias("pct_6_month_low"),
+                    (pl.col("close").rolling_min(252) / pl.col("close")).alias("pct_1_year_low"),
+                    (pl.col("close").rolling_min(1260) / pl.col("close")).alias("pct_5_year_low"),
+                    pl.col("close").pct_change().rolling_sum(10).alias("10_day_rolling_return"),
+                    pl.col("close").pct_change().rolling_sum(22).alias("22_day_rolling_return"),
+                    pl.col("close").pct_change().rolling_sum(66).alias("66_day_rolling_return"),
+                    pl.col("close").pct_change().rolling_sum(126).alias("126_day_rolling_return"),
+                    (pl.col("close").pct_change().rolling_sum(10) / pl.col('close').rolling_std(10)).alias("10_day_rolling_sharpe"),
+                    (pl.col("close").pct_change().rolling_sum(22) / pl.col('close').rolling_std(10)).alias("22_day_rolling_sharpe"),
+                    (pl.col("close").pct_change().rolling_sum(66) / pl.col('close').rolling_std(10)).alias("66_day_rolling_sharpe"),
+                    (pl.col("close").pct_change().rolling_sum(126) / pl.col('close').rolling_std(10)).alias("126_day_rolling_sharpe"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(1),window_size=10).alias("autocorrelation_lag_1"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(3),window_size=10).alias("autocorrelation_lag_3"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(6),window_size=15).alias("autocorrelation_lag_6"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(9),window_size=15).alias("autocorrelation_lag_9"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(10),window_size=22).alias("autocorrelation_lag_10"),
+                    pl.rolling_corr(pl.col("close").pct_change(),pl.col("close").pct_change().shift(13),window_size=22).alias("autocorrelation_lag_13"),
+                    pl.col("close").rolling_quantile(0.05, window_size=5).alias("rolling_5_quantile_0.05"),
+                    pl.col("close").rolling_quantile(0.05, window_size=10).alias("rolling_10_quantile_0.05"),
+                    pl.col("close").rolling_quantile(0.05, window_size=15).alias("rolling_15_quantile_0.05"),
+                    pl.col("close").rolling_quantile(0.95, window_size=5).alias("rolling_5_quantile_0.95"),
+                    pl.col("close").rolling_quantile(0.95, window_size=10).alias("rolling_10_quantile_0.95"),
+                    pl.col("close").rolling_quantile(0.95, window_size=15).alias("rolling_15_quantile_0.95"),
+                    pl.col("close").rolling_skew(5).alias("rolling_skew_5"),
+                    pl.col("close").rolling_skew(10).alias("rolling_skew_10"),
+                    pl.col("close").rolling_skew(15).alias("rolling_skew_15")
+                    ).with_columns( # Growing moving average
+                    (pl.col(f"{prefix}SMA10") / pl.col(f'{prefix}SMA22')).alias(f'{prefix}SMA'))
+        else: 
+            df = df.select(
+                        # Moving averages
+                        pl.col('close').rolling_mean(10).alias(f"{prefix}SMA10"),
+                        pl.col('close').rolling_mean(22).alias(f'{prefix}SMA22'),
+                        pl.col('close').rolling_mean(66).alias(f'{prefix}SMA33'),
+                        # Rolling 30d volatility annualized
+                        (pl.col('close').rolling_std(22) / pl.col('close').rolling_mean(22)).alias(f'{prefix}30d_volatility'),
+                        # Spread relative to close price
+                    ).with_columns( # Growing moving average
+                    (pl.col(f"{prefix}SMA10") / pl.col(f'{prefix}SMA22')).alias(f'{prefix}SMA'))
+
+
+
+        return df
+    
+    def calculate_rolling_features_pipe(self, df: pl.DataFrame,
+                                    rolling_lags: List[int] = [],
+                                    prefix: str = "",
+                                    add_default: bool = False,
+                                    default_lags: List[int] = [5,10,22,66],
+                                    ticker: bool = False,
+                                    ) -> pl.DataFrame:
+        
+        if prefix:
+            prefix += "_"
+
+        if not rolling_lags or add_default:
+            print(0.5)
+            rolling_lags = list(set(rolling_lags + default_lags))
+
+        close_col = pl.col("close")
+        rolling_cols = [close_col
+                .rolling_mean(window_size=rolling_lag)  # Compute rolling mean
+                .alias(f"{prefix}{rolling_lag}d_window") for rolling_lag in rolling_lags]
+        
+        df = df.with_columns(rolling_cols)
+        
+        # rolling_cols = df.select(pl.col([col for col in df.columns if "window" in col]))
+        # df.select(pl.exclude("literal")) # drop the None column
+
+        return df
+    
+    def calculate_lag_rolling_features_pipe(self,
+                                            df: pl.DataFrame,
+                                            forecast_horizon: int,
+                                            lags: List[int] = [],
+                                            rolling_lags: List[int] = [],
+                                            prefix: str="",
+                                            add_default: bool = False,
+                                            growth: bool = False,
+                                            ticker: bool = False) -> pl.DataFrame:
+
+        if growth:
+            df = self.calculate_lagged_features_pipe(df, lags=lags,add_default=add_default, prefix=prefix, growth=True)
+
+
+        df = self.calculate_rolling_features_pipe(df, rolling_lags=rolling_lags,add_default=add_default, prefix=prefix)
+        df = df.select("datetime",
+                       "close",
+                       pl.col([col for col in df.columns if "window" in col or "growth" in col]).shift(forecast_horizon).name.suffix(f"_lagged_{forecast_horizon}"))
+
+        lags = [lag + (forecast_horizon - 1) if lag < forecast_horizon else lag for lag in lags]
+        df = self.calculate_lagged_features_pipe(df, lags=lags,add_default=add_default, prefix=prefix)
+
+        if not ticker:
+            df = df.rename({"close":prefix})
+
+        return df
+    
+    
+    
+    def calculate_date_features(self, df: pl.DataFrame,
+                                    prefix: str = ""
+                                    ) -> pl.DataFrame:
+        
+        df = df.select(
+            pl.col('datetime').dt.year().alias('year'),
+            pl.col('datetime').dt.month().alias('month'),
+            pl.col('datetime').dt.weekday().alias('weekday'),
+            pl.col('datetime').dt.quarter().alias('quarter_n'),
+            pl.col('datetime').dt.truncate("1mo").alias("month_dt"),
+
+            # build quarter in date form
+            pl.date(pl.col('datetime').dt.year(),
+                    (pl.col('datetime').dt.quarter() * 3 - 2),  # Maps quarter to starting month (1,4,7,10)
+                    1 # First day of month
+            ).alias("quarter")
+        )
+
+        return df
+
+
     
     def generate_cyclical_features(self, value, period):
         sine = np.sin(2 * np.pi * value / period)
@@ -553,7 +824,20 @@ class TickerExtender(TechnicalIndicators):
 
         return stocks_with_tech_ind
     
+    def compute_daily_index_features(self, historical_index_df: pl.DataFrame, prefix: str = "") -> pl.DataFrame:
 
+        # Rolling features
+        rolling_features = self.calculate_rolling_features(historical_index_df, prefix)
+
+        # Growth features
+        growth_features = self.calculate_growth_features(historical_index_df, prefix)
+        # print(growth_features)
+
+        historical_index_df = pl.concat([historical_index_df[["datetime"]],growth_features,rolling_features], how="horizontal")
+
+        return historical_index_df
+
+    
 
     def compute_daily_ticker_features(self, historical_prices_df: pl.DataFrame) -> pl.DataFrame:
         """
@@ -581,44 +865,23 @@ class TickerExtender(TechnicalIndicators):
         """
 
         # Date features
-        historical_prices_df = historical_prices_df.with_columns(
-            pl.col('datetime').dt.year().alias('year'),
-            pl.col('datetime').dt.month().alias('month'),
-            pl.col('datetime').dt.weekday().alias('weekday'),
-            pl.col('datetime').dt.quarter().alias('quarter_n'),
-            pl.col('datetime').dt.truncate("1mo").alias("month_dt"),
-
-            # build quarter in date form
-            pl.date(pl.col('datetime').dt.year(),
-                    (pl.col('datetime').dt.quarter() * 3 - 2),  # Maps quarter to starting month (1,4,7,10)
-                    1 # First day of month
-            ).alias("quarter")
-        )
-
+        date_features = self.calculate_date_features(historical_prices_df)
+        historical_prices_df = historical_prices_df.with_columns(date_features)
 
         # Growth features
         growth_features = self.calculate_growth_features(historical_prices_df)
         historical_prices_df = historical_prices_df.with_columns(growth_features)
 
         # Moving averages
-        historical_prices_df = historical_prices_df.with_columns(
-                # Moving averages
-                pl.col('close').rolling_mean(10).alias('SMA10'),
-                pl.col('close').rolling_mean(20).alias('SMA20'),
-                # Rolling 30d volatility
-                (pl.col('close').rolling_std(30) * np.sqrt(252)).alias('30d_volatility'),
-                # Spread relative to close price
-                ((pl.col("high") - pl.col("low")) / pl.col("close")).alias('high_minus_low_relative')
-            ).with_columns( # Growing moving average
-            (pl.col('SMA10') > pl.col('SMA20')).cast(pl.Int8).alias('is_growing_moving_average')
-        )
+        rolling_features = self.calculate_rolling_features(historical_prices_df)
+        historical_prices_df = historical_prices_df.with_columns(rolling_features)
 
-        # Future growth calculations
-        for days, offset in [('7d', 5), ('30d', 22)]:
-            historical_prices_df = historical_prices_df.with_columns(
-                (1 - pl.col('close').pct_change(-offset)).alias(f'growth_adj_future_{days}')
-                ).with_columns((pl.col(f'growth_adj_future_{days}') > 1).cast(pl.Int8).alias(f'is_positive_growth_{days}')
-            )
+        # # Future growth calculations
+        # for days, offset in [('7d', 5), ('30d', 22)]:
+        #     historical_prices_df = historical_prices_df.with_columns(
+        #         (1 - pl.col('close').pct_change(-offset)).alias(f'growth_adj_future_{days}')
+        #         ).with_columns((pl.col(f'growth_adj_future_{days}') > 1).cast(pl.Int8).alias(f'is_positive_growth_{days}')
+        #     )
 
         historical_prices_df_tech_indicators = self.add_technical_indicators(historical_prices_df)
 
@@ -721,11 +984,11 @@ class TickerExtender(TechnicalIndicators):
 
     def transform_daily_tickers_parallel(self, dir_path: str) -> None:
         """
-        Applies the daily ticker transformation to all CSV files in the specified directory in parallel. 
+        Applies the daily ticker transformation to all parquet files in the specified directory in parallel. 
         Then, the transformed files are saved in the corresponding "transformed" directory.
 
         Args:
-            dir_path (str): The directory path where the CSV files containing historical price data are stored.
+            dir_path (str): The directory path where the parquet files containing historical price data are stored.
 
         Returns:
             List: List with all transformed datasets.
@@ -733,23 +996,109 @@ class TickerExtender(TechnicalIndicators):
         Notes
         -----
             - This function processes multiple files in parallel for faster execution.
-            - Each CSV file in the directory will be processed by the `compute_daily_ticker_features` method.
-            - The transformed CSV files will be saved in the corresponding "transformed" directory to 
+            - Each parquet file in the directory will be processed by the `compute_daily_ticker_features` method.
+            - The transformed parquet files will be saved in the corresponding "transformed" directory to 
             the "extracted" of the original files.
         """
 
-        # results = Parallel(n_jobs=-1, backend="loky")(
-        #     delayed(self.read_transform_save)(self.compute_daily_ticker_features,str(ticker_file_path))
-        #     for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".csv"
-        # )
+        results = Parallel(n_jobs=-1, backend="loky")(
+            delayed(self.read_transform_save)(self.compute_daily_ticker_features,str(ticker_file_path))
+            for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
+        )
 
-        results = []
-        for ticker_file_path in self.list_all_files(dir_path):
-            if ticker_file_path.suffix == ".csv":
-                results.append(self.read_transform_save(self.compute_daily_ticker_features, str(ticker_file_path)))
+        # results = []
+        # for ticker_file_path in self.list_all_files(Path(dir_path)):
+
+        #     if ticker_file_path.suffix == ".parquet":
+        #         results.append(self.read_transform_save(self.compute_daily_ticker_features, str(ticker_file_path)))
 
         return results
     
+    def compute_daily_ticker_features_experiment(self, historical_prices_df: pl.DataFrame, forecast_horizon: int) -> pl.DataFrame:
+        """
+        Computes a variety of time-based, technical, and growth-related features for daily ticker data.
+
+        Args:
+            historical_prices_df (pl.DataFrame): 
+                The input DataFrame containing historical price data. Required columns include:
+                - 'open': opening price of the asset.
+                - 'high': highest price of the asset during the day.
+                - 'low': lowest price of the asset during the day.
+                - 'close': Closing price of the asset.
+                The DataFrame's index should be a dateTimeIndex representing trading days.
+
+        Returns:
+            pl.DataFrame: 
+                The input DataFrame enriched with additional feature columns, including:
+                - date-related features: 'year', 'month', 'weekday', 'datetime'.
+                - Growth metrics for various trading day lags (via `calculate_growth_features`).
+                - Simple moving averages: 'SMA10', 'SMA20'.
+                - Moving average trend: 'is_growing_moving_average'.
+                - Relative daily spread: 'high_minus_low_relative'.
+                - Rolling 30-day volatility: '30d_volatility'.
+                - Binary 7-day growth signal: 'is_positive_growth_7d'.
+        """
+
+        # Date features
+        # date_features = self.calculate_date_features(historical_prices_df)
+        # historical_prices_df = historical_prices_df.with_columns(date_features)
+
+        # Growth features
+        growth_features = self.calculate_growth_features(historical_prices_df)
+        growth_features = growth_features.select(pl.all().shift(forecast_horizon).name.suffix(f"_lagged_{forecast_horizon}"))
+        historical_prices_df = historical_prices_df.with_columns(growth_features)
+
+        # Moving averages
+        rolling_features = self.calculate_rolling_features_experiment(historical_prices_df)
+        rolling_features = rolling_features.select(pl.all().shift(forecast_horizon).name.suffix(f"_lagged_{forecast_horizon}"))
+        historical_prices_df = historical_prices_df.with_columns(rolling_features)
+
+        # # Future growth calculations
+        # for days, offset in [('7d', 5), ('30d', 22)]:
+        #     historical_prices_df = historical_prices_df.with_columns(
+        #         (1 - pl.col('close').pct_change(-offset)).alias(f'growth_adj_future_{days}')
+        #         ).with_columns((pl.col(f'growth_adj_future_{days}') > 1).cast(pl.Int8).alias(f'is_positive_growth_{days}')
+        #     )
+
+        # historical_prices_df_tech_indicators = self.add_technical_indicators(historical_prices_df)
+
+        return historical_prices_df
+    
+    def transform_daily_tickers_parallel_experiment(self, dir_path: str, forecast_horizon: int) -> None:
+        """
+        Applies the daily ticker transformation to all parquet files in the specified directory in parallel. 
+        Then, the transformed files are saved in the corresponding "transformed" directory.
+
+        Args:
+            dir_path (str): The directory path where the parquet files containing historical price data are stored.
+
+        Returns:
+            List: List with all transformed datasets.
+
+        Notes
+        -----
+            - This function processes multiple files in parallel for faster execution.
+            - Each parquet file in the directory will be processed by the `compute_daily_ticker_features` method.
+            - The transformed parquet files will be saved in the corresponding "transformed" directory to 
+            the "extracted" of the original files.
+        """
+
+        compute_daily_ticker_features_experiment_partial = partial(self.compute_daily_ticker_features_experiment, forecast_horizon=forecast_horizon)
+
+        results = Parallel(n_jobs=-1, backend="loky")(
+            delayed(self.read_transform_save)(compute_daily_ticker_features_experiment_partial,str(ticker_file_path))
+            for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
+        )
+
+        # results = []
+        # for ticker_file_path in self.list_all_files(Path(dir_path)):
+
+        #     if ticker_file_path.suffix == ".parquet":
+        #         results.append(self.read_transform_save(compute_daily_ticker_features_experiment_partial, str(ticker_file_path)))
+
+        return results
+    
+ 
     def merge_tickers(self, ticker_df_list: List, verbose: Optional[bool] = False)-> pl.DataFrame:
 
         merged_tickers_df = pl.concat(ticker_df_list)

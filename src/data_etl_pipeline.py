@@ -65,18 +65,15 @@ def tickers_etl():
 
     # 3.Load
     print("Loading to database...\n")
-    # db_handler.connect_to_database(database)
-    # collection = db_handler.create_collection("stocks_tickers")
-    # documents = merged_ticker_df.to_dict(orient='records')
-    # db_handler.insert_documents(collection_name=collection.name, documents=documents)
+    db_handler.connect_to_database(database)
+    collection = db_handler.check_create_collection("stocks_tickers")
+    documents = merged_ticker_df.to_dict(orient='records')
+    db_handler.insert_documents(collection_name=collection.name, documents=documents)
     end_time = time.time()
 
     print(f"Tickers ETL took {end_time - start_time:.2f} seconds")
 
 
-def main():
-    tickers_etl()
-
    
 if __name__ == "__main__":
-    main()
+    tickers_etl()

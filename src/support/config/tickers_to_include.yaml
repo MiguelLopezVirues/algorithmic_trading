@@ -27,7 +27,7 @@ STOCKS:
     - "BHARTIARTL.NS"
     - "IBN"
     - "SBIN.NS"
-    - "LICI.NS"
+    # - "LICI.NS", do not include, not enough data
     - "INFY"
     - "ITC.NS"
     - "HINDUNILVR.NS"

@@ -84,7 +84,7 @@ class YahooFinanceFetcher(FileHandler):
         save_path: Optional[str] = None
     ) -> pl.DataFrame:  
         """
-        Downloads historical price data for a given symbol from Yahoo Finance and saves it as a CSV file.
+        Downloads historical price data for a given symbol from Yahoo Finance and saves it as a parquet file.
 
         Parameters
         ----------
@@ -93,7 +93,7 @@ class YahooFinanceFetcher(FileHandler):
         interval : str, optional
             The time interval between data points (default is "1d").
         save_path : str, optional
-            The directory path where the CSV file will be saved (default is "../data/extracted").
+            The directory path where the parquet file will be saved (default is "../data/extracted").
 
         Returns
         -------
@@ -113,18 +113,18 @@ class YahooFinanceFetcher(FileHandler):
         if not save_path:
             # Different path for stocks (EQUITY) or macroindicators
             if quote_type == "EQUITY": # stocks
-                save_file = f"OHLCV/{region}/{symbol}.csv"
+                save_file = f"OHLCV/{region}/{symbol}.parquet"
 
             else:  # macroindicators
-                save_file = f"macro/{symbol}.csv"
+                save_file = f"macro/{symbol}.parquet"
 
             save_path = Path(base_dir) / "../../data/extracted" / save_file
 
         else:
-            save_path = Path(save_path) / f"{symbol}.csv"
+            save_path = Path(save_path) / f"{symbol}.parquet"
 
         # Create directories and save
-        self.save_dataframe_csv_file(historical_prices_df, save_path)
+        self.save_dataframe_parquet_file(historical_prices_df, save_path)
 
         return historical_prices_df
 
@@ -135,7 +135,7 @@ class YahooFinanceFetcher(FileHandler):
         save_path: str = None
     ) -> None:
         """
-        Downloads historical prices in parallel for a list of symbols and saves each as a CSV.
+        Downloads historical prices in parallel for a list of symbols and saves each as a parquet.
         """
         Parallel(n_jobs=-1, backend='loky')(
             delayed(self.fetch_save_prices_info)(symbol, interval, save_path)
@@ -145,7 +145,7 @@ class YahooFinanceFetcher(FileHandler):
 
 
 class PDRFetcher(FileHandler):
-    def fetch_historical_data(self, symbol: str, symbol_lag: Tuple[int, str],  start: str = "1955-01-01", save_path: str = None):
+    def fetch_save_historical_data(self, symbol: str, symbol_lag: Tuple[int, str],  start: str = "1955-01-01", save_path: str = None):
         pdr_data = pl.from_pandas(pdr.DataReader(symbol, "fred", start=start), include_index=True)
         
         pdr_data = pdr_data.rename({col: col.lower() for col in pdr_data.columns})
@@ -156,9 +156,9 @@ class PDRFetcher(FileHandler):
                                         pl.exclude("date").name.suffix(f"_prev{lag}_{period}"))\
                                 .with_columns(pl.col("date").dt.offset_by(f"{lag}{period}"))
 
-        save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/{symbol}.csv"
+        save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/{symbol}.parquet"
 
-        self.save_dataframe_csv_file(pdr_data, save_path)
+        self.save_dataframe_parquet_file(pdr_data, save_path)
 
         return pdr_data
     
@@ -167,15 +167,15 @@ class PDRFetcher(FileHandler):
                                         symbols_dict
                                     ) -> None:
         """
-        Downloads historical prices in parallel for a list of symbols and saves each as a CSV.
+        Downloads historical prices in parallel for a list of symbols and saves each as a parquet.
         """
         Parallel(n_jobs=-1, backend='loky')(
-            delayed(self.fetch_historical_data)(symbol, symbol_lag)
+            delayed(self.fetch_save_historical_data)(symbol, symbol_lag)
             for symbol, symbol_lag in symbols_dict.items()
         )
 
 
-def fetch_euro_yield():
+def fetch_euro_yield(save_path: str = None):
     filter_pars = {"yld_curv": ["SPOT_RT"],
     "bonds": ["CGB_EA_AAA"],
     "maturity": ["Y1","Y5","Y10"]}
@@ -183,8 +183,8 @@ def fetch_euro_yield():
     code = 'irt_euryld_d'
     eurostat_euro_yield_df = pl.from_pandas(eurostat.get_data_df(code, flags=False, filter_pars=filter_pars,  verbose=True))
 
-    save_path = Path(base_dir) / f"../../data/extracted/macro/eurostat_euro_yield.csv"
+    save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/eurostat_euro_yield.parquet"
 
-    eurostat_euro_yield_df.write_csv(save_path)
+    eurostat_euro_yield_df.write_parquet(save_path)
 
     return eurostat_euro_yield_df

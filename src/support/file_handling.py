@@ -5,18 +5,18 @@ import polars as pl
 import os
 
 class FileHandler:
-    def read_csv_file(self, file_path: str) -> pl.DataFrame:  
+    def read_parquet_file(self, file_path: str) -> pl.DataFrame:  
         """
-        Reads a CSV file and parses its first column as a datetime.
+        Reads a parquet file and parses its first column as a datetime.
         """
-        df = pl.read_csv(file_path)
+        base_dir = os.path.dirname(__file__)
+        file_path = os.path.join(base_dir, file_path)
+        df = pl.read_parquet(file_path)
         
-        # Handle index column (first column) from pandas CSV
+        # Handle index column (first column) from pandas parquet
         first_col = df.columns[0]
 
-        return df.rename({first_col: "datetime"}).with_columns(
-            pl.col("datetime").str.to_datetime()
-        )
+        return df.rename({first_col: "datetime"})
     
     def list_all_files(self, directory: str):
         """
@@ -30,18 +30,19 @@ class FileHandler:
         """
         base_dir = os.path.dirname(__file__)
         directory = os.path.join(base_dir, directory)
+        print(directory)
         return [file for file in Path(directory).rglob('*') if file.is_file()]
 
-    def save_dataframe_csv_file(self, df: pl.DataFrame, save_path: Path) -> None:  
+    def save_dataframe_parquet_file(self, df: pl.DataFrame, save_path: Path) -> None:  
         """
-        Saves a DataFrame to a CSV file, creating necessary directories.
+        Saves a DataFrame to a parquet file, creating necessary directories.
         
         Args:
             df (pl.DataFrame): The DataFrame to save.
-            save_path (str): Path to save the CSV file.
+            save_path (str): Path to save the parquet file.
         """
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        df.write_csv(save_path)
+        df.write_parquet(save_path)
 
     def read_transform_save(
         self,
@@ -50,12 +51,12 @@ class FileHandler:
         save_path: Optional[str] = None
     ) -> pl.DataFrame:  # Polars return type
         """
-        Reads a CSV, applies a transformation function, and saves the result.
+        Reads a parquet, applies a transformation function, and saves the result.
 
         Args:
             transform_function (Callable): Function to transform the DataFrame.
-            read_path (str): Path to the input CSV file.
-            save_path (Optional[str]): Path to save the transformed CSV file. If None, a default path is generated.
+            read_path (str): Path to the input parquet file.
+            save_path (Optional[str]): Path to save the transformed parquet file. If None, a default path is generated.
 
         Returns:
             pd.DataFrame: Transformed DataFrame.
@@ -63,7 +64,8 @@ class FileHandler:
         # Read
         base_dir = os.path.dirname(__file__)
         read_path = os.path.join(base_dir, read_path)
-        df = self.read_csv_file(read_path)
+        df = self.read_parquet_file(read_path)
+
 
         # Transform
         df = transform_function(df)
@@ -72,5 +74,5 @@ class FileHandler:
         if not save_path:
             save_path = Path(re.sub(r"extracted","transformed",read_path))
         
-        self.save_dataframe_csv_file(df, save_path)
+        self.save_dataframe_parquet_file(df, save_path)
         return df

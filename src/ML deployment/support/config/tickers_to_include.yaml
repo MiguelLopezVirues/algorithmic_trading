@@ -1,0 +1,53 @@
+STOCKS:
+    - "MSFT"
+    - "AAPL"
+    - "GOOG"
+    - "NVDA"
+    - "AMZN"
+    - "META"
+    - "BRK-B"
+    - "LLY"
+    - "AVGO"
+    - "V"
+    - "JPM"
+    - "NVO"
+    - "MC.PA"
+    - "ASML"
+    - "RMS.PA"
+    - "OR.PA"
+    - "SAP"
+    - "ACN"
+    - "TTE"
+    - "SIE.DE"
+    - "IDEXY"
+    - "CDI.PA"
+    - "RELIANCE.NS"
+    - "TCS.NS"
+    - "HDB"
+    - "BHARTIARTL.NS"
+    - "IBN"
+    - "SBIN.NS"
+    # - "LICI.NS", do not include, not enough data
+    - "INFY"
+    - "ITC.NS"
+    - "HINDUNILVR.NS"
+    - "LT.NS"
+
+MACRO:
+- "^GDAXI"
+- "^GSPC"
+- "^DJI"
+- "EPI" 
+- ^VIX
+- GC=F
+- CL=F
+- BZ=F
+- BTC-USD
+
+MACRO_PDR:
+  DGS1: [1, "d"]
+  DGS5: [1, "d"]
+  DGS10: [1, "d"]
+  CPILFESL: [1, "mo"] # 1 month lag
+  FEDFUNDS: [1, "mo"] # 1 month lag
+  GDPPOT: [null, null]

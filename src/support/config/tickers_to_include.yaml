@@ -33,6 +33,8 @@ STOCKS:
     - "HINDUNILVR.NS"
     - "LT.NS"
 
+
+
 MACRO:
 - "^GDAXI"
 - "^GSPC"

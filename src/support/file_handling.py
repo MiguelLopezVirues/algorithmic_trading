@@ -9,8 +9,8 @@ class FileHandler:
         """
         Reads a parquet file and parses its first column as a datetime.
         """
-        base_dir = os.path.dirname(__file__)
-        file_path = os.path.join(base_dir, file_path)
+        # base_dir = os.path.dirname(__file__)
+        # file_path = os.path.join(base_dir, file_path)
         df = pl.read_parquet(file_path)
         
         # Handle index column (first column) from pandas parquet
@@ -28,10 +28,9 @@ class FileHandler:
         Returns:
             List: List with all files, nested or not, inside the directory.
         """
-        base_dir = os.path.dirname(__file__)
-        directory = os.path.join(base_dir, directory)
-        print(directory)
-        return [file for file in Path(directory).rglob('*') if file.is_file()]
+        # base_dir = os.path.dirname(__file__)
+        # directory = os.path.join(base_dir, directory)
+        return [file for file in Path(directory).rglob('*') if file.suffix == '.parquet']
 
     def save_dataframe_parquet_file(self, df: pl.DataFrame, save_path: Path) -> None:  
         """
@@ -42,6 +41,7 @@ class FileHandler:
             save_path (str): Path to save the parquet file.
         """
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        print(save_path)
         df.write_parquet(save_path)
 
     def read_transform_save(
@@ -62,8 +62,9 @@ class FileHandler:
             pd.DataFrame: Transformed DataFrame.
         """
         # Read
-        base_dir = os.path.dirname(__file__)
-        read_path = os.path.join(base_dir, read_path)
+        # base_dir = os.path.dirname(__file__)
+        # read_path = os.path.join(base_dir, read_path)
+
         df = self.read_parquet_file(read_path)
 
 

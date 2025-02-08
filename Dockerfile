@@ -33,3 +33,6 @@ COPY uv.lock /app
 RUN uv sync
 
 ENV PYTHONPATH=/app
+
+# On container run, execute train and predict scripts
+CMD ["/bin/sh", "-c", "python train.py && python predict.py"]

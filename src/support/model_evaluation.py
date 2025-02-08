@@ -169,8 +169,6 @@ def evaluate_recursive_multiseries_2(
                                 n_jobs: Union[str,int] = "auto",
                                 verbose: bool = False,
                                 metric: str = "mean_absolute_percentage_error"):
-    
-    warnings.simplefilter('ignore', category=MissingValuesWarning)
 
     # Fit forecaster
     # ==============================================================================
@@ -189,6 +187,7 @@ def evaluate_recursive_multiseries_2(
     forecaster_recursive.fit(series=series_train, 
                             exog=exog_train,
                                 suppress_warnings=suppress_warnings)
+    
     
 
     # Backtesting

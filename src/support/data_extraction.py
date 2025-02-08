@@ -145,7 +145,7 @@ class YahooFinanceFetcher(FileHandler):
 
 
 class PDRFetcher(FileHandler):
-    def fetch_save_historical_data(self, symbol: str, symbol_lag: Tuple[int, str],  start: str = "1955-01-01", save_path: str = None):
+    def fetch_save_historical_data(self, symbol: str, symbol_lag: Tuple[int, str],  start: str = "1955-01-01", dir_path: str = None):
         pdr_data = pl.from_pandas(pdr.DataReader(symbol, "fred", start=start), include_index=True)
         
         pdr_data = pdr_data.rename({col: col.lower() for col in pdr_data.columns})
@@ -155,8 +155,10 @@ class PDRFetcher(FileHandler):
             pdr_data = pdr_data.select("date",
                                         pl.exclude("date").name.suffix(f"_prev{lag}_{period}"))\
                                 .with_columns(pl.col("date").dt.offset_by(f"{lag}{period}"))
+            
+        dir_path = dir_path or Path(base_dir) / f"../data/extracted/macro/"
 
-        save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/{symbol}.parquet"
+        save_path = dir_path / f"{symbol}.parquet"
 
         self.save_dataframe_parquet_file(pdr_data, save_path)
 
@@ -164,13 +166,14 @@ class PDRFetcher(FileHandler):
     
     def fetch_save_prices_info_parallel(
                                         self,
-                                        symbols_dict
+                                        symbols_dict,
+                                        dir_path: str = None
                                     ) -> None:
         """
         Downloads historical prices in parallel for a list of symbols and saves each as a parquet.
         """
         Parallel(n_jobs=-1, backend='loky')(
-            delayed(self.fetch_save_historical_data)(symbol, symbol_lag)
+            delayed(self.fetch_save_historical_data)(symbol, symbol_lag, dir_path = dir_path)
             for symbol, symbol_lag in symbols_dict.items()
         )
 
@@ -183,7 +186,7 @@ def fetch_euro_yield(save_path: str = None):
     code = 'irt_euryld_d'
     eurostat_euro_yield_df = pl.from_pandas(eurostat.get_data_df(code, flags=False, filter_pars=filter_pars,  verbose=True))
 
-    save_path = save_path or Path(base_dir) / f"../../data/extracted/macro/eurostat_euro_yield.parquet"
+    save_path = save_path or Path(base_dir) / f"../data/extracted/macro/eurostat_euro_yield.parquet"
 
     eurostat_euro_yield_df.write_parquet(save_path)
 

@@ -25,8 +25,10 @@ class MongoDBHandler:
             self.client.admin.command('ping')
             print("Pinged your deployment. You successfully connected to MongoDB!")
             self.db = self.client[db_name]
+
         except Exception as e:
             print(e)
+
 
         
 
@@ -36,10 +38,21 @@ class MongoDBHandler:
         
         :param collection_name: Name of the collection to create
         """
-        if collection_name not in self.db.list_collection_names():
-            self.db.create_collection(collection_name)
+        try:
+            if collection_name not in self.db.list_collection_names():
+                self.db.create_collection(collection_name)
+                print(f"Collection {collection_name} created.")
+                
+            else:
+                print("Collection existent")
+
+            return self.db[collection_name]
         
-        return self.db[collection_name]
+        except Exception as e:
+            print("You did not connect to a database yet.", {e})
+        
+        
+        
 
     def insert_documents(self, collection_name: str, documents: List[Dict[str, Any]]):
         """

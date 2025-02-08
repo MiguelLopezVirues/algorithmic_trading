@@ -1,12 +1,14 @@
 import os
 import polars as pl
+import polars.selectors as cs
+
 import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
 from pathlib import Path
 import re
 import talib
-from typing import List, Optional
+from typing import List, Optional, Callable
 import pandas_market_calendars as mcal
 import warnings
 from tqdm import tqdm
@@ -14,6 +16,7 @@ from functools import partial
 
 from .file_handling import FileHandler
 
+from datetime import datetime
 
 # TO-DO:
 # [] add error-handling
@@ -738,7 +741,6 @@ class TickerExtender(TechnicalIndicators):
             prefix += "_"
 
         if not rolling_lags or add_default:
-            print(0.5)
             rolling_lags = list(set(rolling_lags + default_lags))
 
         close_col = pl.col("close")
@@ -831,7 +833,6 @@ class TickerExtender(TechnicalIndicators):
 
         # Growth features
         growth_features = self.calculate_growth_features(historical_index_df, prefix)
-        # print(growth_features)
 
         historical_index_df = pl.concat([historical_index_df[["datetime"]],growth_features,rolling_features], how="horizontal")
 
@@ -1001,6 +1002,7 @@ class TickerExtender(TechnicalIndicators):
             the "extracted" of the original files.
         """
 
+
         results = Parallel(n_jobs=-1, backend="loky")(
             delayed(self.read_transform_save)(self.compute_daily_ticker_features,str(ticker_file_path))
             for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
@@ -1042,10 +1044,12 @@ class TickerExtender(TechnicalIndicators):
         # Date features
         # date_features = self.calculate_date_features(historical_prices_df)
         # historical_prices_df = historical_prices_df.with_columns(date_features)
-
+        print("compute daily features")
         # Growth features
         growth_features = self.calculate_growth_features(historical_prices_df)
+
         growth_features = growth_features.select(pl.all().shift(forecast_horizon).name.suffix(f"_lagged_{forecast_horizon}"))
+
         historical_prices_df = historical_prices_df.with_columns(growth_features)
 
         # Moving averages
@@ -1098,17 +1102,83 @@ class TickerExtender(TechnicalIndicators):
 
         return results
     
- 
-    def merge_tickers(self, ticker_df_list: List, verbose: Optional[bool] = False)-> pl.DataFrame:
+    
+    def apply_transformation_parallel(self, dir_path: str, transformation_function: Callable):
+        
+        results = Parallel(n_jobs=-1, backend="loky")(
+            delayed(transformation_function)(str(ticker_file_path))
+            for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
+        )
+        return results
 
-        merged_tickers_df = pl.concat(ticker_df_list)
+
+    def add_empty_row_df(self, df, date_column, n_steps: int = 5):
+
+        # Create empty row
+        empty_row = pl.DataFrame({col: [None]*n_steps for col in df.columns})
+
+        # Cast each column in the empty row to the appropriate type using the original schema
+        empty_row = empty_row.select([pl.col(col).cast(dtype) for col, dtype in df.schema.items()])
+
+        filtered_df = df.filter(pl.col(date_column) <= datetime(2025,1,31))
+
+        empty_row = empty_row.with_columns(pl.lit(filtered_df[-n_steps:][date_column]).dt.add_business_days(n_steps).alias("datetime").cast(df.schema["datetime"]))
+
+        df_with_empty = pl.concat([df, empty_row])
+
+        return df_with_empty
+    
+
+
+    
+    def read_add_exog(self, file_path: str, n_last: int = 1265, date_column: str ="datetime", n_steps: int = 5):
+
+        ticker_df = self.read_parquet_file(file_path)
+
+        ticker_df =  (ticker_df.upsample(time_column=date_column, every="1d") # .asfreq("B") equivalent in Polars
+                        .filter(pl.col(date_column).dt.weekday() <= 5)
+                        .fill_null(strategy="forward"))
+
+        ticker_df_last = ticker_df[-n_last*2:]
+
+        ticker_df_with_empty_rows = self.add_empty_row_df(ticker_df_last, date_column = date_column, n_steps = n_steps)
+
+        ticker_df_new_exog = self.compute_daily_ticker_features_experiment(ticker_df_with_empty_rows, forecast_horizon=n_steps
+                                                                           ).with_columns(cs.temporal() | cs.string()
+                                                                            ).fill_null(strategy="forward")[-n_steps:]
+
+        # save symbol name
+        symbol = ticker_df_new_exog["symbol"][0]
+
+        # exclude non-exog columns
+        ticker_df_new_exog = ticker_df_new_exog.select(pl.exclude(["close","high","low","volume", "open", "symbol","currency","industry","sector","region"]))
+
+        # convert to pandas for skforecast prediction
+        ticker_df_new_exog = ticker_df_new_exog.to_pandas().set_index("datetime").asfreq("B")
+
+
+        return symbol, ticker_df_new_exog
+
+    
+    def merge_tickers(self, ticker_df_list: List, verbose: Optional[bool] = False, method: str="vertical")-> pl.DataFrame:
+
+        merged_tickers_df = pl.concat(ticker_df_list, how = method)
 
         if verbose:
             tickers = merged_tickers_df['symbol'].unique().to_list()
             print(f"Merged {len(tickers)} tickers")
 
-        
         return merged_tickers_df
+    
+    def generate_exog_dict(self, dir_path: str, n_last = 1265, n_steps = 5):
+
+        add_last_exogenous = partial(self.read_add_exog, n_last = n_last, date_column = "datetime", n_steps = n_steps)
+
+        symbols_df_tuple_list = self.apply_transformation_parallel(dir_path = dir_path, transformation_function = add_last_exogenous)
+
+        return {symbol: ticker_df for symbol, ticker_df in symbols_df_tuple_list}
+
+
 
 
 class MacroIndicatorTransformer():

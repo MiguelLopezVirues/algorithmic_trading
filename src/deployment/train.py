@@ -2,13 +2,14 @@ import time
 import polars as pl
 import pandas as pd
 
-from support.data_extraction import YahooFinanceFetcher, PDRFetcher, fetch_euro_yield
-from support.data_transformation import TickerExtender
-from support.model_evaluation import long_series_exog_to_dict, evaluate_recursive_multiseries_2
+from src.support.data_extraction import YahooFinanceFetcher, PDRFetcher, fetch_euro_yield
+from src.support.data_transformation import TickerExtender
+from src.support.model_evaluation import long_series_exog_to_dict, evaluate_recursive_multiseries_2
+from src.data_etl_pipeline import extract_tickers, transform_tickers
 
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from support.utils import load_config
+from src.support.utils import load_config
 
 from datetime import datetime
 
@@ -44,46 +45,9 @@ from skforecast.preprocessing import RollingFeatures
 from skforecast.utils import save_forecaster
 
 
-# Functions
-def extract_tickers():
-    base_dir = os.path.dirname(__file__)
-    # get list of tickers to process
-    tickers = load_config("tickers_to_include.yaml")
-    symbols_list = tickers["STOCKS"]
-    macro_list = tickers["MACRO"]
-    macro_pdr_dict = tickers["MACRO_PDR"]       
-
-    # 1.Extract
-    # yahoo finance
-    print("Extracting stocks...\n")
-    yahoo_fetcher.fetch_save_prices_info_parallel(symbols_list)
-    print("Extracting macroindicators from yf...\n")
-    yahoo_fetcher.fetch_save_prices_info_parallel(macro_list, save_path = Path(base_dir) / "data/extracted/macro")
-
-    # pdr finance
-    print("Extracting macroindicators from pdr...\n")
-    pdr_fetcher.fetch_save_prices_info_parallel(macro_pdr_dict, dir_path = Path(base_dir) / "data/extracted/macro")
-
-    # euroyield
-    fetch_euro_yield(save_path = Path(base_dir) / "data/extracted/macro/eurostat_euro_yield.parquet")
-
-
-
-def transform_tickers(forecast_horizon: int = 5):
-    base_dir = os.path.dirname(__file__)
-
-    print("Transforming...")
-    print("Enriching ticker dataframes.")
-    ticker_df_list = ticker_extender.transform_daily_tickers_parallel_experiment(Path(base_dir) / "data/extracted/OHLCV", forecast_horizon=forecast_horizon)
-
-    print("Merging into one collection.")
-    merged_ticker_df = ticker_extender.merge_tickers(ticker_df_list)
-
-    merged_ticker_df.write_parquet(Path(base_dir) / "data/transformed/dataset.parquet")
-
 
 def load_select_features():
-    transformed_df = pl.read_parquet(Path(base_dir) / "data/transformed/dataset.parquet")
+    transformed_df = pl.read_parquet(Path(base_dir) / "../../data/transformed/dataset.parquet")
 
 
     data_long_indicators = transformed_df.select(pl.exclude(["high","low","open","volume","currency","industry","sector","region"])
@@ -111,7 +75,7 @@ def generate_training_dicts(date_range, training_window, data_long_indicators_se
     date_range = pd.date_range(start="2000-01-01", end=datetime.today(), freq="B")
 
     start = datetime.strftime(date_range[-training_window], "%Y-%m-%d") # This in practice should fecth the data from S3 or the feature store and perform this
-    end = datetime.strftime(date_range[-6], "%Y-%m-%d") # Also, it should be done on weekends, but right now it is not a weekend, so the last day available day is a Thursday
+    end = datetime.strftime(date_range[-1], "%Y-%m-%d") # Also, it should be done on weekends, but right now it is not a weekend, so the last day available day is a Thursday
 
     series_dict, exog_dict, _, _, _= long_series_exog_to_dict(dataframe = data_long_indicators_series.to_pandas(), # Same with this, the df should be loaded from S3
                                     series_id_column = "symbol", 
@@ -130,10 +94,10 @@ def generate_training_dicts(date_range, training_window, data_long_indicators_se
 
 def generate_out_of_sample_pred(date_range, training_window, transformer_exog, model):
     # For residuals we would need a train and val
-    start_train = datetime.strftime(date_range[-training_window - 999], "%Y-%m-%d")
-    end_train = datetime.strftime(date_range[- 999], "%Y-%m-%d")
-    start_val = datetime.strftime(date_range[- 998], "%Y-%m-%d")
-    end_val = datetime.strftime(date_range[-6], "%Y-%m-%d")
+    start_train = datetime.strftime(date_range[-training_window - 1000], "%Y-%m-%d")
+    end_train = datetime.strftime(date_range[- 1001], "%Y-%m-%d")
+    start_val = datetime.strftime(date_range[- 1000], "%Y-%m-%d")
+    end_val = datetime.strftime(date_range[-1], "%Y-%m-%d")
 
     series_dict_val, exog_dict_val, series_dict_train, exog_dict_train, series_dict_val_test = long_series_exog_to_dict(dataframe = data_long_indicators_series.to_pandas(), # Same with this, the df should be loaded from S3
                                     series_id_column = "symbol", 
@@ -160,7 +124,7 @@ def generate_out_of_sample_pred(date_range, training_window, transformer_exog, m
         "differentiation": 1,
         "transformer_exog": transformer_exog,
         "n_jobs": 6,
-        "refit": 1,
+        "refit": 24,
         "encoding": "onehot",
         "fixed_train_size": True,
         "suppress_warnings": False,
@@ -170,7 +134,7 @@ def generate_out_of_sample_pred(date_range, training_window, transformer_exog, m
 
     _, backtest_predictions, _ = evaluate_recursive_multiseries_2(**params)
 
-    directory = Path(base_dir) / "data/predictions"
+    directory = Path(base_dir) / "predictions"
     os.makedirs(directory,exist_ok=True)
     pl.from_pandas(backtest_predictions).write_parquet(directory / "out_of_sample.parquet")
 
@@ -185,7 +149,7 @@ def train(model, series_dict, exog_dict, out_sample_pred, out_sample_dict_test, 
                         window_features  = window_features,
                         differentiation  = 1,
                         differentiator   = "pct",
-                        transformer_exog = one_hot_encoder,
+                        transformer_exog = transformer_exog,
                         encoding         = "onehot"
                     )
 
@@ -205,15 +169,14 @@ def train(model, series_dict, exog_dict, out_sample_pred, out_sample_dict_test, 
 
     directory = Path(base_dir) / "model"
     os.makedirs(directory,exist_ok=True)
-    print(directory)
     save_forecaster(
         forecaster_recursive, 
-        file_name = 'model/forecaster_recursive_multiseries.joblib', 
+        file_name = directory / 'forecaster_recursive_multiseries.joblib', 
         save_custom_functions = True, 
         verbose = False
     )
 
-    print("That's all fellas!")
+    print(f"Model trained and saved into {directory}!")
 
 if __name__ == "__main__":
 
@@ -228,7 +191,7 @@ if __name__ == "__main__":
 
     # Generate dicts for training
     date_range = pd.date_range(start="2000-01-01", end=datetime.today(), freq="B")
-    training_window = 2609
+    training_window = 2611
     series_dict, exog_dict = generate_training_dicts(date_range, training_window, data_long_indicators_series, data_long_indicators_exog)
 
     # Generate out of sample residuals

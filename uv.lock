@@ -174,6 +174,7 @@ dependencies = [
     { name = "tqdm" },
     { name = "tqdm-joblib" },
     { name = "uvicorn" },
+    { name = "xgboost-cpu" },
     { name = "yfinance" },
 ]
 
@@ -218,6 +219,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "tqdm-joblib", specifier = ">=0.0.4" },
     { name = "uvicorn", specifier = ">=0.34.0" },
+    { name = "xgboost-cpu", specifier = ">=2.1.4" },
     { name = "yfinance", specifier = ">=0.2.51" },
 ]
 
@@ -3848,6 +3850,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/56/fc/238c424fd7f4ebb25f8b1da9a934a3ad7c848286732ae04263661eb0fc03/widgetsnbextension-4.0.13.tar.gz", hash = "sha256:ffcb67bc9febd10234a362795f643927f4e0c05d9342c727b65d2384f8feacb6", size = 1164730 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/21/02/88b65cc394961a60c43c70517066b6b679738caf78506a5da7b88ffcb643/widgetsnbextension-4.0.13-py3-none-any.whl", hash = "sha256:74b2692e8500525cc38c2b877236ba51d34541e6385eeed5aec15a70f88a6c71", size = 2335872 },
+]
+
+[[package]]
+name = "xgboost-cpu"
+version = "2.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/d5/2a3a0634adb88ccb535874c26944bd500f2819e85e940620328566793416/xgboost_cpu-2.1.4-py3-none-manylinux2014_aarch64.whl", hash = "sha256:f2eb1997a490789a9866abad46179e0a4e1ea01c1673cb5b586b630dc6b18232", size = 4442000 },
+    { url = "https://files.pythonhosted.org/packages/a0/57/479d1d82bf6d40e323de8576062016819b525bc5e3376e6ee6f160398331/xgboost_cpu-2.1.4-py3-none-manylinux2014_x86_64.whl", hash = "sha256:ac3281127b2f77f6c62e8699216b0974a1c4a442ee6162eb94256c01df7cd1f5", size = 4533116 },
+    { url = "https://files.pythonhosted.org/packages/36/85/4d4df5d698e0c2b40262221283367a14a13905eeaeeb304fe1c75d352771/xgboost_cpu-2.1.4-py3-none-win_amd64.whl", hash = "sha256:5bd5017085fcf1756306eadd6548973a8ef05f18ad2eec529f5b54c00843cecf", size = 1859513 },
 ]
 
 [[package]]

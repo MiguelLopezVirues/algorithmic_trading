@@ -18,6 +18,8 @@ class FileHandler:
 
         return df.rename({first_col: "datetime"})
     
+
+    
     def list_all_files(self, directory: str):
         """
         Lists all nested files in a directory.
@@ -32,6 +34,8 @@ class FileHandler:
         # directory = os.path.join(base_dir, directory)
         return [file for file in Path(directory).rglob('*') if file.suffix == '.parquet']
 
+
+
     def save_dataframe_parquet_file(self, df: pl.DataFrame, save_path: Path) -> None:  
         """
         Saves a DataFrame to a parquet file, creating necessary directories.
@@ -41,8 +45,9 @@ class FileHandler:
             save_path (str): Path to save the parquet file.
         """
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        print(save_path)
         df.write_parquet(save_path)
+
+
 
     def read_transform_save(
         self,

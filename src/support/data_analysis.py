@@ -1,10 +1,13 @@
 import numpy as np
 import polars as pl
 import pandas as pd
-from typping import Tuple
+from typing import Tuple
 
 from sklearn.metrics import mutual_info_score
 from sklearn.feature_selection import mutual_info_regression
+
+from itertools import combinations
+from joblib import Parallel, delayed
 
 def compute_normalized_mi_with_regression(dataset: pl.DataFrame, n_jobs: int = -1) -> Tuple[pl.DataFrame, pl.DataFrame]:
     """

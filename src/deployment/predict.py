@@ -1,37 +1,17 @@
 import polars as pl
 import joblib
 from skforecast.utils import load_forecaster
-from support.data_transformation import TickerExtender
-from support.data_load import MongoDBHandler
-from support.trade_evaluation import create_long_table, trade_evaluation_table, create_bounds_dict, create_trade_mongodb_documents
+from src.support.data_transformation import TickerExtender
+from src.support.data_load import MongoDBHandler, get_secret_from_ssm, load_aws_secrets
+from src.support.trade_evaluation import create_trade_mongodb_documents
 
 import os
 from pathlib import Path
 base_dir = os.path.dirname(__file__)
 
-from datetime import datetime
-
 from typing import List
 
 import boto3
-
-
-def get_secret_from_ssm(secret_name):
-    ssm = boto3.client('ssm', region_name='eu-west-1') 
-    try:
-        response = ssm.get_parameter(
-            Name=secret_name,
-            WithDecryption=True  # Decrypt the AWS Parameter SecureString
-        )
-        return response['Parameter']['Value']
-    
-    except Exception as e:
-        print(f"Error retrieving secret: {str(e)}")
-        return None
-
-
-def load_aws_secrets(secret_names_list):
-    return {secret_name: get_secret_from_ssm(secret_name) for secret_name in secret_names_list}
 
 
 # Retrieve MongoDB credentials and declare db handler
@@ -39,8 +19,7 @@ secrets = load_aws_secrets(["MONGO_DB_USER","MONGO_DB_PASS","MONGO_HOST","MONGO_
 db_handler = MongoDBHandler(
     db_user=secrets["MONGO_DB_USER"], 
     db_pass=secrets["MONGO_DB_PASS"], 
-    host=secrets["MONGO_HOST"], 
-    options=secrets["MONGO_OPTIONS"]
+    host=secrets["MONGO_HOST"]
 )
 
 def predict(model, exog_dict_prediction, last_window=None, steps: int = 5, interval: List[int] = [25, 75], n_boot = 2000):
@@ -51,11 +30,11 @@ def predict(model, exog_dict_prediction, last_window=None, steps: int = 5, inter
     
     return predictions
 
-def load_predictions_db(documents, db_handler):
-    db_handler.connect_to_database(secrets["MONGO_DB_NAME"])
-    collection = db_handler.check_create_collection("stocks_predictions")
-    if db_handler.insert_documents(collection_name=collection.name, documents=documents):
-        print("Prediction database upload succesful.")
+# def load_predictions_db(documents, db_handler):
+#     db_handler.connect_to_database(secrets["MONGO_DB_NAME"])
+#     collection = db_handler.check_create_collection("stocks_predictions")
+#     if db_handler.insert_documents(collection_name=collection.name, documents=documents):
+#         print("Prediction database upload succesful.")
 
 
 if __name__ == "__main__":
@@ -71,7 +50,7 @@ if __name__ == "__main__":
 
     # Generate exog
     ticker_extender = TickerExtender()
-    exog_dict = ticker_extender.generate_exog_dict(Path(base_dir) / "data/transformed/OHLCV/")
+    exog_dict = ticker_extender.generate_exog_dict(Path(base_dir) / "../../data/transformed/OHLCV/")
 
     # Generate predictions
     predictions = predict(model, exog_dict, last_window=None, steps = 5)
@@ -84,6 +63,6 @@ if __name__ == "__main__":
     
 
     print("Loading predictions to database...\n")
-    load_predictions_db(prediction_evaluation_documents_list, db_handler=db_handler)
+    db_handler.load_to_mongodb(documents=prediction_evaluation_documents_list, database=secrets["MONGO_DB_NAME"], collection_name="stocks_predictions")
         
 

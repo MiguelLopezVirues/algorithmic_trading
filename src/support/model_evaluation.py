@@ -18,7 +18,107 @@ from skforecast.exceptions.exceptions import MissingValuesWarning
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-def fill_na_dict(ts_dict: Dict, method: str = "ffill", verbose: bool = False, series_name: str = "Series"):
+from typing import Optional
+
+from feature_engine.datetime import DatetimeFeatures
+from feature_engine.creation import CyclicalFeatures
+
+from statsmodels.tsa.stattools import ccf
+
+from typing import Tuple
+
+import exchange_calendars as ecals
+import pandas_market_calendars as mcal
+
+from sklearn.pipeline import make_pipeline
+
+
+# General Libraries
+from datetime import datetime
+import math
+import random
+import sys
+import warnings
+
+# Data Handling and Processing
+import pandas as pd
+import polars as pl
+import numpy as np
+from typing import List, Union, Optional, Dict
+
+# Scikit-learn and Forecasting
+import sklearn
+import skforecast
+from skforecast.plot import plot_residuals, plot_prediction_distribution, set_dark_theme
+from skforecast.recursive import ForecasterRecursiveMultiSeries, ForecasterRecursive
+from skforecast.direct import ForecasterDirectMultiVariate
+from skforecast.model_selection import TimeSeriesFold, OneStepAheadFold, backtesting_forecaster, bayesian_search_forecaster, backtesting_forecaster_multiseries, bayesian_search_forecaster_multiseries
+from skforecast.feature_selection import select_features_multiseries
+from skforecast.preprocessing import RollingFeatures, series_long_to_dict, exog_long_to_dict
+from skforecast.exceptions import OneStepAheadValidationWarning
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import RFECV
+from xgboost import XGBRegressor
+
+# Feature Engineering
+from feature_engine.timeseries.forecasting import LagFeatures, WindowFeatures
+from sklearn.pipeline import make_pipeline
+
+# Plotting and Visualization
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.graph_objects as go
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.stats.diagnostic import het_arch
+from statsmodels.tsa.stattools import pacf, acf
+
+# Time Series and Statistical Analysis
+import networkx as nx
+
+
+
+# Warnings Configuration
+warnings.filterwarnings('once')
+from skforecast.exceptions.exceptions import MissingValuesWarning, LongTrainingWarning, IgnoredArgumentWarning, MissingExogWarning
+warnings.simplefilter('ignore', category=LongTrainingWarning)
+warnings.simplefilter('ignore', category=IgnoredArgumentWarning)
+warnings.simplefilter('ignore', category=MissingValuesWarning)
+warnings.simplefilter('ignore', category=MissingExogWarning)
+
+# Custom Modules
+sys.path.append("..")
+from src.support.data_transformation import TickerExtender, TechnicalIndicators, FileHandler
+from src.support.timeseries_support import TimeSeriesAnalysis
+from src.support.file_handling import FileHandler
+import src.support.data_visualization as dv
+
+# Instantiate objects
+ticker_extender = TickerExtender()
+file_handler = FileHandler()
+
+
+def fill_na_dict(
+                ts_dict: Dict[str, pd.Series], 
+                method: str = "ffill", 
+                verbose: bool = False, 
+                series_name: str = "Series"
+            ) -> Dict[str, pd.Series]:
+    """
+    Fills missing values in a dictionary of time series using the specified method.
+
+    Args:
+        ts_dict (Dict[str, pd.Series]): Dictionary where keys are series names and values are Pandas Series.
+        method (str, optional): Method for filling NaN values. Options: "interpolate", "ffill", or None. Defaults to "ffill".
+        verbose (bool, optional): If True, prints the method applied. Defaults to False.
+        series_name (str, optional): Name of the series for logging purposes. Defaults to "Series".
+
+    Returns:
+        Dict[str, pd.Series]: Dictionary with NaN values handled according to the selected method.
+
+    Raises:
+        ValueError: If an unsupported method is specified.
+    """
     if method == "interpolate":
         print(f"{series_name} values interpolated") if verbose else None
         ts_dict = {k: v.interpolate() for k, v in ts_dict.items()}
@@ -41,12 +141,34 @@ def long_series_exog_to_dict(dataframe: pd.DataFrame,
                                 end_train:str,
                                 start_test: str,
                                 end_test:str,
-                                exog_dataframe: pd.DataFrame = None,
+                                exog_dataframe: Optional[pd.DataFrame] = None,
                                 index_freq: str = "B",
                                 fill_nan: str = "ffill",
                                 verbose: bool = False,
-                                partition_name: str = "Train"):
-    
+                                partition_name: str = "Train") -> Dict[str, pd.DataFrame]:
+    """
+    Converts a long-format time series into a dictionary of train-test partitions.
+
+    Args:
+        dataframe (pd.DataFrame): Input DataFrame in long format with a 'datetime' index and 'close' column.
+        series_id_column (str): Column name that identifies different time series.
+        start_train (str): Start date for the training period.
+        end_train (str): End date for the training period.
+        start_test (str): Start date for the testing period.
+        end_test (str): End date for the testing period.
+        exog_dataframe (Optional[pd.DataFrame], optional): DataFrame with exogenous variables. Defaults to None.
+        index_freq (str, optional): Frequency of the datetime index. Defaults to "B" (business days).
+        fill_nan (str, optional): Method for handling NaN values. Defaults to "ffill".
+        verbose (bool, optional): If True, prints processing details. Defaults to False.
+        partition_name (str, optional): Name of the partition (e.g., "Train"). Defaults to "Train".
+
+    Returns:
+        Dict[str, pd.DataFrame]: Dictionary with train and test partitions of the time series.
+
+    Notes:
+        - Filters out missing values due to closed markets.
+        - Handles NaN values using the specified method.
+    """
     # Filter warnings from closed market missing values
     warnings.simplefilter('ignore', category=MissingValuesWarning)
 
@@ -60,9 +182,11 @@ def long_series_exog_to_dict(dataframe: pd.DataFrame,
                     freq      = index_freq
                     )
     
-  
+    # Handle missing values in the series inside the dict
     series_dict = fill_na_dict(ts_dict = series_dict, 
-                 method = fill_nan, verbose=verbose, series_name="Autoreg series")
+                 method = fill_nan, 
+                 verbose=verbose, 
+                 series_name="Autoreg series")
 
     # Series train-test split
     # ==============================================================================
@@ -149,7 +273,7 @@ def long_series_exog_to_dict(dataframe: pd.DataFrame,
     return series_dict, exog_dict, series_dict_train, exog_dict_train, series_dict_test
 
 
-def evaluate_recursive_multiseries_2(
+def evaluate_recursive_multiseries(
                                 series_train: Union[Dict, pd.DataFrame],
                                 series: Union[Dict, pd.DataFrame],
                                 model: object, 
@@ -157,9 +281,9 @@ def evaluate_recursive_multiseries_2(
                                 window_stats: List[str], 
                                 window_sizes: List[int], 
                                 lags: List[int],
-                                exog_train: Union[Dict, pd.DataFrame] = None,
-                                exog: Union[Dict, pd.DataFrame] = None,
-                                transformer_exog: object = None,
+                                exog_train: Optional[Union[Dict[str, pd.DataFrame], pd.DataFrame]] = None,
+                                exog: Optional[Union[Dict[str, pd.DataFrame], pd.DataFrame]] = None,
+                                transformer_exog: Optional[object] = None,
                                 encoding: str = "onehot",
                                 differentiation: int = 1, 
                                 refit: Union[bool,int] = 8,
@@ -168,12 +292,44 @@ def evaluate_recursive_multiseries_2(
                                 show_progress: bool = True,
                                 n_jobs: Union[str,int] = "auto",
                                 verbose: bool = False,
-                                metric: str = "mean_absolute_percentage_error"):
+                                metric: str = "mean_absolute_percentage_error") -> Tuple[pd.DataFrame, pd.DataFrame, ForecasterRecursiveMultiSeries]:
+    """
+    Evaluates a recursive multi-series forecasting model using time series backtesting.
+
+    Args:
+        series_train (Union[Dict[str, pd.Series], pd.DataFrame]): Training time series data.
+        series (Union[Dict[str, pd.Series], pd.DataFrame]): Full time series data for evaluation.
+        model (object): Regression model to be used in forecasting.
+        forecast_horizon (int): Number of steps ahead to forecast.
+        window_stats (List[str]): Statistical features for rolling window.
+        window_sizes (List[int]): Sizes of rolling windows for feature extraction.
+        lags (List[int]): Lags to be used as predictors.
+        exog_train (Optional[Union[Dict[str, pd.DataFrame], pd.DataFrame]], optional): Exogenous variables for training. Defaults to None.
+        exog (Optional[Union[Dict[str, pd.DataFrame], pd.DataFrame]], optional): Exogenous variables for evaluation. Defaults to None.
+        transformer_exog (Optional[object], optional): Transformer for exogenous variables. Defaults to None.
+        encoding (str, optional): Encoding type for categorical variables. Defaults to "onehot".
+        differentiation (int, optional): Degree of differentiation applied to the series. Defaults to 1.
+        refit (Union[bool, int], optional): Refit strategy for the model during backtesting. Defaults to 8.
+        fixed_train_size (bool, optional): Whether to keep training size fixed in backtesting. Defaults to True.
+        suppress_warnings (bool, optional): Whether to suppress warnings. Defaults to False.
+        show_progress (bool, optional): Whether to show progress bar during backtesting. Defaults to True.
+        n_jobs (Union[str, int], optional): Number of parallel jobs for execution. Defaults to "auto".
+        verbose (bool, optional): Whether to print debugging information. Defaults to False.
+        metric (str, optional): Performance metric to evaluate the model. Defaults to "mean_absolute_percentage_error".
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame, ForecasterRecursiveMultiSeries]: 
+            - metrics_levels: DataFrame with evaluation metrics per series.
+            - backtest_predictions: DataFrame with backtesting predictions.
+            - forecaster_recursive: Trained ForecasterRecursiveMultiSeries object.
+    """
+
+    # Define rolling features
+    window_features = RollingFeatures(stats=window_stats, window_sizes=window_sizes)
 
     # Fit forecaster
     # ==============================================================================
     # Define the forecaster. 
-    window_features = RollingFeatures(stats=window_stats, window_sizes=window_sizes)
     forecaster_recursive = ForecasterRecursiveMultiSeries(
                         regressor        = model,
                         lags             = lags,
@@ -184,6 +340,7 @@ def evaluate_recursive_multiseries_2(
                         encoding         = encoding,
                     )
     
+    # Fit
     forecaster_recursive.fit(series=series_train, 
                             exog=exog_train,
                                 suppress_warnings=suppress_warnings)
@@ -192,6 +349,8 @@ def evaluate_recursive_multiseries_2(
 
     # Backtesting
     # ==============================================================================
+    
+    # Define cross-validation scheme
     cv = TimeSeriesFold(
             steps              = forecast_horizon,
             initial_train_size = len(next(iter(series_train.values()))) if isinstance(series_train, dict) else series_train.shape[0], # get first key to obtain length of series
@@ -200,7 +359,7 @@ def evaluate_recursive_multiseries_2(
             differentiation    = differentiation
         )
     
-
+    # Perform backtesting
     metrics_levels, backtest_predictions = backtesting_forecaster_multiseries(
         forecaster            = forecaster_recursive,
         series                = series,
@@ -221,8 +380,454 @@ def evaluate_recursive_multiseries_2(
     return metrics_levels, backtest_predictions, forecaster_recursive
 
 
-# Function to plot predicted intervals
-# ======================================================================================
+
+def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
+                                series_id_column: str, 
+                                start_train:str,
+                                end_train:str,
+                                start_test: str,
+                                end_test:str,
+                                model: object, 
+                                forecast_horizon: int, 
+                                window_stats: List[str], 
+                                window_sizes: List[int], 
+                                lags: List[int],
+                                exog_dataframe: pd.DataFrame = None,
+                                transformer_exog: object = None,
+                                encoding: str = "onehot",
+                                index_freq: str = "B",
+                                fill_nan: str = "ffil",
+                                differentiation: int = 1, 
+                                refit: Union[bool,int] = 8,
+                                fixed_train_size: bool = True,
+                                suppress_warnings: bool = False,
+                                show_progress: bool = True,
+                                n_jobs: Union[str,int] = "auto",
+                                verbose: bool = False):
+
+    series_dict, exog_dict, series_dict_train, exog_dict_train = long_series_exog_to_dict(dataframe = dataframe,
+                                                                                            series_id_column = series_id_column, 
+                                                                                            start_train = start_train,
+                                                                                            end_train = end_train,
+                                                                                            start_test = start_test,
+                                                                                            end_test = end_test,
+                                                                                            exog_dataframe = exog_dataframe,
+                                                                                            index_freq = index_freq,
+                                                                                            fill_nan = fill_nan,
+                                                                                            verbose = verbose)
+    
+
+    metrics_levels, backtest_predictions, forecaster_recursive = evaluate_recursive_multiseries(series_train=series_dict_train,
+                                                                                                series=series_dict,
+                                                                                                model=model, 
+                                                                                                forecast_horizon=forecast_horizon, 
+                                                                                                window_stats=window_stats, 
+                                                                                                window_sizes=window_sizes, 
+                                                                                                lags=lags,
+                                                                                                exog_train=exog_dict_train,
+                                                                                                exog=exog_dict,
+                                                                                                transformer_exog=transformer_exog,
+                                                                                                encoding=encoding,
+                                                                                                differentiation=differentiation, 
+                                                                                                refit=refit,
+                                                                                                fixed_train_size=fixed_train_size,
+                                                                                                suppress_warnings=suppress_warnings,
+                                                                                                show_progress=show_progress,
+                                                                                                n_jobs=n_jobs,
+                                                                                                verbose=verbose)
+
+
+
+    return metrics_levels, backtest_predictions, forecaster_recursive
+
+def get_opening_days_market(ecal_exchange_symbol: str, start: str, end: str):
+    exchange_calendar = ecals.get_calendar(ecal_exchange_symbol)
+
+    # Get the market schedule
+    exchange_schedule = exchange_calendar.schedule.loc[start:end].index.to_frame(index=False, name="datetime")
+
+    # Assign open days
+    exchange_schedule = exchange_schedule.assign(market_open=1).set_index("datetime").asfreq("B").fillna(0)
+
+    return exchange_schedule
+
+
+def get_calendar_cyclical_features(dataframe: pd.DataFrame,
+                                   datetime_column: str = "index",
+                                   drop_original: bool = True) -> pd.DataFrame:
+
+    original_columns = dataframe.columns
+    # Calendar features
+    # ==============================================================================
+    features_to_extract = [
+        'year',
+        'month',
+        'week',
+        'day_of_month',
+        'day_of_week'
+    ]
+    
+    calendar_transformer = DatetimeFeatures(
+        variables           = datetime_column,
+        features_to_extract = features_to_extract,
+        drop_original       = False
+    )
+
+    # Cliclical encoding of calendar features
+    # ==============================================================================
+    features_to_encode = [
+        "month",
+        "week",
+        "day_of_month",
+        "day_of_week"
+    ]
+    max_values = {
+        "month": 12,
+        "week": 52,
+        "day_of_month": 30,
+        "day_of_week": 6
+    }
+
+    cyclical_encoder = CyclicalFeatures(
+                            variables     = features_to_encode,
+                            max_values    = max_values,
+                            drop_original = drop_original
+                    )
+
+    exog_transformer = make_pipeline(
+                            calendar_transformer,
+                            cyclical_encoder
+                    )
+
+    dataframe_plus_calendar_cyclical = exog_transformer.fit_transform(dataframe)
+
+    # exog_columns = dataframe_plus_calendar_cyclical.columns.difference(original_columns).tolist()
+    
+    return dataframe_plus_calendar_cyclical
+
+
+
+def get_opening_days_market(ecal_exchange_symbol: str, start: str, end: str):
+    exchange_calendar = ecals.get_calendar(ecal_exchange_symbol)
+
+    # Get the market schedule
+    exchange_schedule = exchange_calendar.schedule.loc[start:end].index.to_frame(index=False, name="datetime")
+
+    # Assign open days
+    exchange_schedule["market_open"] = 1 
+    exchange_schedule = exchange_schedule.set_index("datetime").asfreq("B").tz_localize(None).fillna(0)
+
+    return exchange_schedule
+
+def get_opening_days_market_pandas(mcal_exchange_symbol: str, start: str, end: str):
+    # Get calendar
+    exchange_calendar = mcal.get_calendar(mcal_exchange_symbol)
+
+    # Get the market schedule
+    exchange_schedule = exchange_calendar.valid_days(start_date=start, end_date=end)
+    exchange_schedule = exchange_schedule.to_frame(index=False, name='datetime')   
+
+    # Assign open days
+    exchange_schedule["market_open"] = 1
+    exchange_schedule = exchange_schedule.set_index("datetime").asfreq("B").tz_localize(None).fillna(0)
+
+    return exchange_schedule
+
+
+
+exchange_calendars = {
+    "US_AMERICA": {
+        "United States": "NYSE"  # New York Stock Exchange (NYSE)
+    },
+    "AMERICA": {
+        "Canada": "TSX",         # Toronto Stock Exchange
+        "Mexico": "XMEX",        # Mexican Stock Exchange (BMV)
+        "Brazil": "BVMF",        # B3 - Brasil Bolsa Balcão
+        "Chile": "XSGO",         # Santiago Stock Exchange
+        "Argentina": "XBUE"      # Buenos Aires Stock Exchange
+    },
+    "EU": {
+        "Germany": "XETR",       # Frankfurt Stock Exchange (XETRA)
+        "United Kingdom": "XLON", # London Stock Exchange (LSE)
+        "France": "XPAR",        # Euronext Paris
+        "Spain": "XMAD",         # Bolsa de Madrid
+        "Netherlands": "XAMS",   # Euronext Amsterdam
+        "Sweden": "XSTO",        # Nasdaq Stockholm
+        "Italy": "XMIL",         # Borsa Italiana (Milan)
+        "Switzerland": "XSWX",   # SIX Swiss Exchange
+        "Poland": "XWAR",        # Warsaw Stock Exchange
+        "Finland": "XHEL",       # Nasdaq Helsinki
+        "Denmark": "XCSE",       # Nasdaq Copenhagen
+        "Ireland": "XDUB",       # Euronext Dublin
+        "Belgium": "XBRU",       # Euronext Brussels
+        "Austria": "XWBO",       # Wiener Börse (Vienna Stock Exchange)
+        "Portugal": "XLIS",      # Euronext Lisbon
+        "Greece": "XATH",        # Athens Stock Exchange
+        "Luxembourg": "XLUX",    # Luxembourg Stock Exchange
+        "Czech Republic": "XPRA", # Prague Stock Exchange
+        "Iceland": "XICE",       # Nasdaq Iceland
+        "EU": "EUREX",           # Placeholder for entire EU region
+        "European Union": "EUREX",
+        "Europe": "EUREX"
+    },
+    "ASIA": {
+        "China": "XSHG",         # Shanghai Stock Exchange
+        "Japan": "XTKS",         # Tokyo Stock Exchange
+        "South Korea": "XKRX",   # Korea Exchange
+        "Hong Kong": "XHKG",     # Hong Kong Stock Exchange
+        "Singapore": "XSES",     # Singapore Exchange
+        "Taiwan": "XTAI",        # Taiwan Stock Exchange
+        "Thailand": "XBKK",      # Stock Exchange of Thailand
+        "India": "XBOM",         # National Stock Exchange of India
+        "Indonesia": "XIDX",     # Indonesia Stock Exchange
+        "Philippines": "XPHS",   # Philippine Stock Exchange
+        "Vietnam": "XHOSE",      # Ho Chi Minh Stock Exchange (HSX)
+        "Malaysia": "XKLS",      # Bursa Malaysia
+        "Pakistan": "XKAR",      # Pakistan Stock Exchange
+        "Cambodia": "XCSX",      # Cambodia Securities Exchange
+        "Asia": "XASX"           # Placeholder for entire Asia region
+    },
+    "MIDDLE_EAST": {
+        "Saudi Arabia": "XSAU",  # Saudi Stock Exchange (Tadawul)
+        "United Arab Emirates": "XDFM",  # Dubai Financial Market
+        "Israel": "XTASE",       # Tel Aviv Stock Exchange
+        "Qatar": "XQSE",         # Qatar Stock Exchange
+        "Bahrain": "XBAH",       # Bahrain Bourse
+        "Oman": "XMSM",          # Muscat Securities Market
+        "Kuwait": "XKFE",        # Boursa Kuwait
+        "Turkey": "XIST"         # Borsa Istanbul
+    },
+    "OTHERS": {
+        "Australia": "XASX",     # Australian Securities Exchange
+        "New Zealand": "XNZE",   # New Zealand Exchange
+        "South Africa": "XJSE",  # Johannesburg Stock Exchange
+        "Norway": "XOSL",        # Oslo Stock Exchange
+        "Russia": "XMOS"         # Moscow Exchange (MOEX)
+    },
+    "GLOBAL": {
+        "Global": "GLOBAL"       # Placeholder for global markets
+    }
+}
+
+
+
+# def get_opening_days_market_exog(dataframe: pd.DataFrame, symbol_column: str = "symbol"):
+
+#     open_market_df = pd.DataFrame()
+#     for i, symbol in enumerate(dataframe[symbol_column].unique()):
+#         country = stocks_info.loc[stocks_info["symbol"] == symbol, "country"].iloc[0].title().replace("_"," ")
+#         region = stocks_info.loc[stocks_info["symbol"] == symbol, "region"].iloc[0]
+#         exchange_symbol = exchange_calendars[region][country]
+#         start = dataframe.loc[dataframe["symbol"] == symbol].index.min()
+#         end = dataframe.loc[dataframe["symbol"] == symbol].index.max()
+
+#         # df = pd.concat([dataframe.loc[dataframe["symbol"] == symbol], get_opening_days_market_pandas(exchange_symbol, start=start, end=end)], axis=1)
+
+#         # open_market_df = pd.concat([open_market_df,df],axis=0)   
+#         open_market_df = pd.concat([open_market_df, get_opening_days_market_pandas(exchange_symbol, start=start, end=end)])
+    
+#     return pd.concat([dataframe,open_market_df],axis=1)
+
+def get_opening_days_market_exog(dataframe: pd.DataFrame, symbol_column: str = "symbol"):
+
+    open_market_df = pd.DataFrame()
+    for i, symbol in enumerate(dataframe[symbol_column].unique()):
+        country = stocks_info.loc[stocks_info["symbol"] == symbol, "country"].iloc[0].title().replace("_"," ")
+        region = stocks_info.loc[stocks_info["symbol"] == symbol, "region"].iloc[0]
+        exchange_symbol = exchange_calendars[region][country]
+        start = dataframe.loc[dataframe["symbol"] == symbol].index.min()
+        end = dataframe.loc[dataframe["symbol"] == symbol].index.max()
+
+        df = pd.concat([dataframe.loc[dataframe["symbol"] == symbol], get_opening_days_market_pandas(exchange_symbol, start=start, end=end)], axis=1)
+
+        open_market_df = pd.concat([open_market_df,df],axis=0)   
+        # open_market_df = pd.concat([open_market_df, get_opening_days_market_pandas(exchange_symbol, start=start, end=end)])
+    
+    # return pd.concat([dataframe,open_market_df],axis=1)
+    return open_market_df
+
+
+
+def plot_ccf_symmetric_statsmodels(x, y, max_lag=30, x_name="x", y_name="y", figsize=(10,5)):
+    """
+    Plot a symmetrical cross-correlation function (CCF) for two time series x and y
+    using statsmodels.tsa.stattools.ccf, covering negative and positive integer lags.
+
+    Parameters
+    ----------
+    x, y : pandas Series
+        Time series (preferably stationary, e.g. returns) to be cross-correlated.
+        Should share a common time index or at least significant overlap.
+    max_lag : int
+        Maximum positive/negative lag to plot.
+    x_name, y_name : str
+        Names for the labels in the plot.
+    figsize : tuple
+        Size of the figure.
+
+    Notes
+    -----
+    - statsmodels.ccf() only returns CCF for lags >= 0.
+      To get negative lags, we swap x and y and combine the results.
+    - This approach is an approximation if your series are autocorrelated.
+      For real statistical testing, you might need more advanced methods.
+    """
+    # 1) Align on the common index to avoid misalignment
+    x = x.dropna()
+    y = y.dropna()
+    common_idx = x.index.intersection(y.index)
+    x = x.loc[common_idx]
+    y = y.loc[common_idx]
+
+    # 2) Convert to numpy arrays (statsmodels ccf works on arrays)
+    #    Optionally do differencing or log returns if the data isn't stationary
+    #    Also recommended to standardize/normalize if you want 'similar scales'
+    x_arr = x.values
+    y_arr = y.values
+
+    # 3) statsmodels' ccf => correlation for lags = 0..(len(x)-1)
+    #    ccf(x, y): how y "follows" x
+    #    ccf(y, x): how x "follows" y
+    ccf_xy = ccf(x_arr, y_arr)  # This includes lag=0.. up to max possible
+    ccf_yx = ccf(y_arr, x_arr)
+
+    # 4) Truncate to max_lag + 1 terms from each (0..max_lag)
+    #    ccf_xy[0] = lag 0, ccf_xy[1] = lag 1, ...
+    #    so ccf_xy[:max_lag+1] means lags 0..max_lag
+    ccf_xy_pos_lags = ccf_xy[: max_lag + 1]  # Lags: 0..+max_lag
+    ccf_yx_pos_lags = ccf_yx[: max_lag + 1]  # Lags: 0..+max_lag
+
+    # 5) To form negative lags, we can interpret ccf(y,x) at lag k
+    #    as ccf(x,y) at lag -k. So ccf_yx_pos_lags[1..max_lag] => negative lags
+    #    We'll reverse them to go from -max_lag..-1.
+    neg_lags = np.arange(-max_lag, 0)
+    pos_lags = np.arange(0, max_lag + 1)
+
+    # slice [1:] to skip the zero-lag, then reverse
+    ccf_neg = ccf_yx_pos_lags[1:][::-1]  # Lags: (max_lag..1) reversed => -1..-max_lag
+    ccf_pos = ccf_xy_pos_lags            # Lags: 0..+max_lag
+
+    # Combine them for symmetrical range
+    ccf_full = np.concatenate([ccf_neg, ccf_pos])
+    lags_full = np.concatenate([neg_lags, pos_lags])
+
+    # 6) Rough 95% confidence intervals => ±2/sqrt(N)
+    #    (N is effectively the sample size. This is a rule of thumb for white noise.)
+    N = len(x_arr)
+    conf = 2.0 / np.sqrt(N)
+
+    # 7) Plot
+    plt.figure(figsize=figsize)
+    plt.stem(lags_full, ccf_full, basefmt=" ")
+    plt.axhline(0, color='black', linestyle='--')
+    plt.axhline(conf, color='red', linestyle='--', alpha=0.7, label='±95% conf')
+    plt.axhline(-conf, color='red', linestyle='--', alpha=0.7)
+    plt.title(f"Symmetric Cross-Correlation: {x_name} vs. {y_name}")
+    plt.xlabel('Lag')
+    plt.ylabel('Correlation')
+    plt.legend()
+    plt.grid(True, ls=':')
+    plt.show()
+
+def calculate_top_pacf_df(df, cols, n_lags = 90):
+    
+    n_rows=math.ceil(len(cols)/2)
+    n_cols = 1 if len(cols) == 1 else 2
+
+    pacf_df = []
+    fig, axs = plt.subplots(n_rows, 2, figsize=(12, 1.5*n_rows))
+    axs = axs.flat
+        
+    for i, col in enumerate(cols):
+        pacf_values = pacf(df[col].pct_change(1).dropna(), nlags=n_lags)
+        pacf_values = pd.DataFrame({
+            'lag': range(1, len(pacf_values)),
+            'value': pacf_values[1:],
+            'variable': col
+        })
+        pacf_df.append(pacf_values)
+        plot_pacf(df[col].pct_change(1).dropna(), lags=n_lags, ax=axs[i])
+        axs[i].set_title(col, fontsize=10)
+        axs[i].set_ylim(-0.5, 1.1)
+    plt.tight_layout()
+
+    top_pacf_df = calculate_top_pacf(pacf_df, top_n_lags=5)
+
+    return top_pacf_df
+
+def calculate_top_pacf(pacf_df, top_n_lags=5):
+    print("Showing all possible steps for window features:")
+    print("=========")
+    top_lags_pacf = set()
+    top_lags_pacf_dict = dict()
+    for pacf_values in pacf_df:
+        variable = pacf_values['variable'].iloc[0]
+        pacf_values['value'] = pacf_values['value'].abs()
+        lags = pacf_values.nlargest(top_n_lags, 'value')['lag'].tolist()
+        top_lags_pacf_dict[variable] = lags
+        top_lags_pacf.update(lags)
+        print(f"{variable}: {lags}")
+    top_lags_pacf = list(top_lags_pacf)
+    return top_lags_pacf
+
+
+def calculate_top_acf_pacf_df(df, cols, n_lags=90, method='pacf'):
+    
+    n_rows = math.ceil(len(cols) / 2)
+    n_cols = 1 if len(cols) == 1 else 2
+
+    acf_pacf_df = []
+    fig, axs = plt.subplots(n_rows, 2, figsize=(12, 1.5 * n_rows))
+    axs = axs.flat
+        
+    for i, col in enumerate(cols):
+        series = df[col].pct_change(1).dropna()
+        
+        if method == 'pacf':
+            values = pacf(series, nlags=n_lags)
+            plot_func = plot_pacf
+
+        elif method == 'acf':
+            values = acf(series, nlags=n_lags)
+            plot_func = plot_acf
+        else:
+            raise ValueError("Method must be either 'pacf' or 'acf'")
+        
+        values_df = pd.DataFrame({
+            'lag': range(1, len(values)),
+            'value': values[1:],
+            'variable': col
+        })
+        acf_pacf_df.append(values_df)
+        
+        plot_func(series, lags=n_lags, ax=axs[i])
+        axs[i].set_title(col, fontsize=10)
+        axs[i].set_ylim(-0.5, 1.1)
+    
+    plt.tight_layout()
+
+    top_acf_pacf_df = calculate_top_lags(acf_pacf_df, top_n_lags=5)
+
+    return top_acf_pacf_df
+
+def calculate_top_lags(acf_pacf_df, top_n_lags=5):
+    print("Showing all possible lags:")
+    print("=========")
+    top_lags = set()
+    top_lags_dict = dict()
+    for values_df in acf_pacf_df:
+        variable = values_df['variable'].iloc[0]
+        values_df['value'] = values_df['value'].abs()
+        lags = values_df.nlargest(top_n_lags, 'value')['lag'].tolist()
+        top_lags_dict[variable] = lags
+        top_lags.update(lags)
+        print(f"{variable}: {lags}")
+    top_lags = list(top_lags)
+    return top_lags
+
+
+
+
 def plot_predicted_intervals(
     predictions: pd.DataFrame,
     y_true: pd.DataFrame,
@@ -283,6 +888,6 @@ def plot_predicted_intervals(
 
 def empirical_coverage(y, lower_bound, upper_bound):
     """
-    Calculate coverage of a given interval
+    Calculate coverage of a given prediction interval's lower and upper bound
     """
     return np.mean(np.logical_and(y >= lower_bound, y <= upper_bound))

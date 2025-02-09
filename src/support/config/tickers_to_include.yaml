@@ -40,6 +40,7 @@ MACRO:
 - "^GSPC"
 - "^DJI"
 - "EPI" 
+- ^N100
 - ^VIX
 - GC=F
 - CL=F

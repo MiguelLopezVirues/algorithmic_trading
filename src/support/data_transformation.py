@@ -5,25 +5,28 @@ import polars.selectors as cs
 import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
-from pathlib import Path
-import re
 import talib
 from typing import List, Optional, Callable
-import pandas_market_calendars as mcal
-import warnings
-from tqdm import tqdm
 from functools import partial
 
 from .file_handling import FileHandler
 
 from datetime import datetime
 
-# TO-DO:
-# [] add error-handling
+from typing import Tuple, Dict
 
     
 class TechnicalIndicators(FileHandler):
     def talib_get_momentum_indicators_for_one_ticker(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Computes momentum indicators for a single ticker using TA-Lib.
+
+        Args:
+            df (pl.DataFrame): DataFrame containing OHLCV data for a single ticker.
+
+        Returns:
+            pl.DataFrame: DataFrame with added momentum indicators.
+        """
         # Convert Polars Series to numpy arrays for TA-Lib
         high = df['high'].to_numpy().astype('float64')
         low = df['low'].to_numpy().astype('float64')
@@ -152,7 +155,15 @@ class TechnicalIndicators(FileHandler):
         return momentum_df
     
     def talib_get_volume_volatility_cycle_price_indicators(self,df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Computes volume, volatility, cycle, and price indicators for a single ticker using TA-Lib.
 
+        Args:
+            df (pl.DataFrame): DataFrame containing OHLCV data for a single ticker.
+
+        Returns:
+            pl.DataFrame: DataFrame with added volume, volatility, cycle, and price indicators.
+        """
         high = df['high'].to_numpy().astype('float64')
         low = df['low'].to_numpy().astype('float64')
         close = df['close'].to_numpy().astype('float64')
@@ -226,6 +237,16 @@ class TechnicalIndicators(FileHandler):
         return volume_volatility_cycle_price_df
     
     def talib_get_pattern_recognition_indicators(self, df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Computes pattern recognition indicators for a single ticker using TA-Lib.
+
+        Args:
+            df (pl.DataFrame): DataFrame containing OHLCV data for a single ticker.
+
+        Returns:
+            pl.DataFrame: DataFrame with added pattern recognition indicators.
+        """
+
         open = df['open'].to_numpy().astype('float64')
         high = df['high'].to_numpy().astype('float64')
         low = df['low'].to_numpy().astype('float64')
@@ -638,7 +659,17 @@ class TickerExtender(TechnicalIndicators):
                                     prefix: str = "",
                                     ticker: bool = True
                                     ) -> pl.DataFrame:
+        """
+        Computes rolling features such as moving averages, volatility, and relative spreads for a given DataFrame.
 
+        Args:
+            df (pl.DataFrame): Input DataFrame containing OHLCV data.
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+            ticker (bool, optional): Whether to include ticker-specific features. Defaults to True.
+
+        Returns:
+            pl.DataFrame: DataFrame with added rolling features.
+        """
         df = df.select(
                 # Moving averages
                 pl.col('close').rolling_mean(10).alias(f"{prefix}SMA10"),
@@ -659,6 +690,18 @@ class TickerExtender(TechnicalIndicators):
                                                 prefix: str = "",
                                                 ticker: bool = True
                                                 ) -> pl.DataFrame:
+        """
+        Computes additional rolling features for experimental purposes, including advanced metrics like rolling Sharpe ratio,
+        autocorrelation, and quantiles.
+
+        Args:
+            df (pl.DataFrame): Input DataFrame containing OHLCV data.
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+            ticker (bool, optional): Whether to include ticker-specific features. Defaults to True.
+
+        Returns:
+            pl.DataFrame: DataFrame with added experimental rolling features.
+        """
 
         if prefix != "":
             prefix += "_"
@@ -736,7 +779,20 @@ class TickerExtender(TechnicalIndicators):
                                     default_lags: List[int] = [5,10,22,66],
                                     ticker: bool = False,
                                     ) -> pl.DataFrame:
-        
+        """
+        Computes rolling features for a given DataFrame using a pipeline approach.
+
+        Args:
+            df (pl.DataFrame): Input DataFrame containing OHLCV data.
+            rolling_lags (List[int], optional): List of rolling window sizes. Defaults to [].
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+            add_default (bool, optional): Whether to add default lags. Defaults to False.
+            default_lags (List[int], optional): Default lags to use if `add_default` is True. Defaults to [5, 10, 22, 66].
+            ticker (bool, optional): Whether to include ticker-specific features. Defaults to False.
+
+        Returns:
+            pl.DataFrame: DataFrame with added rolling features.
+        """
         if prefix:
             prefix += "_"
 
@@ -764,7 +820,22 @@ class TickerExtender(TechnicalIndicators):
                                             add_default: bool = False,
                                             growth: bool = False,
                                             ticker: bool = False) -> pl.DataFrame:
+        """
+        Computes lagged and rolling features for a given DataFrame using a pipeline approach.
 
+        Args:
+            df (pl.DataFrame): Input DataFrame containing OHLCV data.
+            forecast_horizon (int): Number of steps to shift the features.
+            lags (List[int], optional): List of lag sizes. Defaults to [].
+            rolling_lags (List[int], optional): List of rolling window sizes. Defaults to [].
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+            add_default (bool, optional): Whether to add default lags. Defaults to False.
+            growth (bool, optional): Whether to compute growth features. Defaults to False.
+            ticker (bool, optional): Whether to include ticker-specific features. Defaults to False.
+
+        Returns:
+            pl.DataFrame: DataFrame with added lagged and rolling features.
+        """
         if growth:
             df = self.calculate_lagged_features_pipe(df, lags=lags,add_default=add_default, prefix=prefix, growth=True)
 
@@ -787,7 +858,16 @@ class TickerExtender(TechnicalIndicators):
     def calculate_date_features(self, df: pl.DataFrame,
                                     prefix: str = ""
                                     ) -> pl.DataFrame:
-        
+        """
+        Computes date-related features such as year, month, weekday, and quarter.
+
+        Args:
+            df (pl.DataFrame): Input DataFrame containing a datetime column.
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+
+        Returns:
+            pl.DataFrame: DataFrame with added date-related features.
+        """
         df = df.select(
             pl.col('datetime').dt.year().alias('year'),
             pl.col('datetime').dt.month().alias('month'),
@@ -804,16 +884,33 @@ class TickerExtender(TechnicalIndicators):
 
         return df
 
-
     
-    def generate_cyclical_features(self, value, period):
-        sine = np.sin(2 * np.pi * value / period)
-        cosine = np.cos(2 * np.pi * value / period)
+    def generate_cyclical_features(self, value: float, period_length: float) -> Tuple[float, float]:
+        """
+        Generates cyclical features (sine and cosine) for a given value and period.
+
+        Args:
+            value (float): Input value to transform.
+            period (float): Period for the cyclical transformation.
+
+        Returns:
+            Tuple[float, float]: Sine and cosine values representing the cyclical feature.
+        """
+        sine = np.sin(2 * np.pi * value / period_length)
+        cosine = np.cos(2 * np.pi * value / period_length)
         return sine, cosine
     
     
     def add_technical_indicators(self, stocks_df: pl.DataFrame) -> pl.DataFrame:
+        """
+        Adds technical indicators (momentum, volume, volatility, cycle, and pattern recognition) to a DataFrame.
 
+        Args:
+            stocks_df (pl.DataFrame): Input DataFrame containing OHLCV data.
+
+        Returns:
+            pl.DataFrame: DataFrame with added technical indicators.
+        """
         # Calculate indicators
         momentum = self.talib_get_momentum_indicators_for_one_ticker(stocks_df)
         volume = self.talib_get_volume_volatility_cycle_price_indicators(stocks_df)
@@ -826,7 +923,19 @@ class TickerExtender(TechnicalIndicators):
 
         return stocks_with_tech_ind
     
-    def compute_daily_index_features(self, historical_index_df: pl.DataFrame, prefix: str = "") -> pl.DataFrame:
+    def compute_daily_index_features(self, 
+                                     historical_index_df: pl.DataFrame, 
+                                     prefix: str = "") -> pl.DataFrame:
+        """
+        Computes daily index features including rolling and growth features.
+
+        Args:
+            historical_index_df (pl.DataFrame): Input DataFrame containing index data.
+            prefix (str, optional): Prefix to add to column names. Defaults to "".
+
+        Returns:
+            pl.DataFrame: DataFrame with added index features.
+        """
 
         # Rolling features
         rolling_features = self.calculate_rolling_features(historical_index_df, prefix)
@@ -877,61 +986,11 @@ class TickerExtender(TechnicalIndicators):
         rolling_features = self.calculate_rolling_features(historical_prices_df)
         historical_prices_df = historical_prices_df.with_columns(rolling_features)
 
-        # # Future growth calculations
-        # for days, offset in [('7d', 5), ('30d', 22)]:
-        #     historical_prices_df = historical_prices_df.with_columns(
-        #         (1 - pl.col('close').pct_change(-offset)).alias(f'growth_adj_future_{days}')
-        #         ).with_columns((pl.col(f'growth_adj_future_{days}') > 1).cast(pl.Int8).alias(f'is_positive_growth_{days}')
-        #     )
-
         historical_prices_df_tech_indicators = self.add_technical_indicators(historical_prices_df)
 
         return historical_prices_df_tech_indicators
     
 
-    # def transform_euro_yield_df(self, eurostat_euro_yield_df: pl.DataFrame) -> pl.DataFrame:
-    #     """
-    #     Transforms the Eurostat Euro yield DataFrame into a more usable format for analysis.
-
-    #     Args:
-    #         eurostat_euro_yield_df (pl.DataFrame): 
-    #             DataFrame containing Eurostat Euro yield data. The input DataFrame should have columns 
-    #             for 'maturity', 'variable', and the yield data for various time periods.
-
-    #     Returns:
-    #         pl.DataFrame: 
-    #             A transformed DataFrame where the yields are pivoted and columns are renamed with a 'eur_yld_' prefix.
-    #             The index represents dates and columns represent maturities for the Euro yield data.
-
-    #     Notes
-    #     -----
-    #         - The input data is reshaped from a long format to a wide format.
-    #     """
-        
-
-    #     eurostat_euro_yield_df = (pd.melt(frame=eurostat_euro_yield_df,
-    #                                     id_vars=eurostat_euro_yield_df.columns[1:4], 
-    #                                     value_vars=eurostat_euro_yield_df.columns[5:])
-    #                                     .pivot(index="variable", columns="maturity", values="value"))
-
-    #     eurostat_euro_yield_df.columns.name = None
-    #     eurostat_euro_yield_df.index.name = 'datetime'
-
-    #     eurostat_euro_yield_df.index = pd.to_datetime(eurostat_euro_yield_df.index, utc=True, )
-
-    #     eurex = mcal.get_calendar('EUREX') 
-    #     new_index = eurex.schedule(start_date=eurostat_euro_yield_df.index[-1]+pd.DateOffset(days=1), 
-    #                                end_date=eurostat_euro_yield_df.index[-1]+pd.DateOffset(days=2)).index
-
-    #     eurostat_euro_yield_df = pd.concat([eurostat_euro_yield_df,pl.DataFrame(columns=eurostat_euro_yield_df.columns, index=new_index)],axis=0).shift(2)
-
-    #     eurostat_euro_yield_df.index = pd.to_datetime(eurostat_euro_yield_df.index, utc=True, )
-
-    #     eurostat_euro_yield_df = eurostat_euro_yield_df.iloc[2:,:]
-
-    #     eurostat_euro_yield_df.columns = ["eur_yld_" + col + "_prev_2d" for col in eurostat_euro_yield_df.columns]
-
-    #     return eurostat_euro_yield_df
     
     def transform_euro_yield_df(self, eurostat_euro_yield_df: pl.DataFrame) -> pl.DataFrame:
         """
@@ -1038,13 +1097,12 @@ class TickerExtender(TechnicalIndicators):
                 - Moving average trend: 'is_growing_moving_average'.
                 - Relative daily spread: 'high_minus_low_relative'.
                 - Rolling 30-day volatility: '30d_volatility'.
-                - Binary 7-day growth signal: 'is_positive_growth_7d'.
         """
 
         # Date features
         # date_features = self.calculate_date_features(historical_prices_df)
         # historical_prices_df = historical_prices_df.with_columns(date_features)
-        print("compute daily features")
+
         # Growth features
         growth_features = self.calculate_growth_features(historical_prices_df)
 
@@ -1057,19 +1115,11 @@ class TickerExtender(TechnicalIndicators):
         rolling_features = rolling_features.select(pl.all().shift(forecast_horizon).name.suffix(f"_lagged_{forecast_horizon}"))
         historical_prices_df = historical_prices_df.with_columns(rolling_features)
 
-        # # Future growth calculations
-        # for days, offset in [('7d', 5), ('30d', 22)]:
-        #     historical_prices_df = historical_prices_df.with_columns(
-        #         (1 - pl.col('close').pct_change(-offset)).alias(f'growth_adj_future_{days}')
-        #         ).with_columns((pl.col(f'growth_adj_future_{days}') > 1).cast(pl.Int8).alias(f'is_positive_growth_{days}')
-        #     )
-
-        # historical_prices_df_tech_indicators = self.add_technical_indicators(historical_prices_df)
-
         return historical_prices_df
     
     def transform_daily_tickers_parallel_experiment(self, dir_path: str, forecast_horizon: int) -> None:
         """
+        Modification from transform_daily_tickers_parallel: Applies a different set of transformations for notebook experiments.
         Applies the daily ticker transformation to all parquet files in the specified directory in parallel. 
         Then, the transformed files are saved in the corresponding "transformed" directory.
 
@@ -1094,17 +1144,22 @@ class TickerExtender(TechnicalIndicators):
             for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
         )
 
-        # results = []
-        # for ticker_file_path in self.list_all_files(Path(dir_path)):
 
-        #     if ticker_file_path.suffix == ".parquet":
-        #         results.append(self.read_transform_save(compute_daily_ticker_features_experiment_partial, str(ticker_file_path)))
 
         return results
     
     
-    def apply_transformation_parallel(self, dir_path: str, transformation_function: Callable):
-        
+    def apply_transformation_parallel(self, dir_path: str, transformation_function: Callable) -> List:
+        """
+        Applies a transformation function in parallel to all `.parquet` files in the given directory.
+
+        Args:
+            dir_path (str): Path to the directory containing `.parquet` files.
+            transformation_function (Callable): Function to apply to each file.
+
+        Returns:
+            list: List of results from applying the transformation function.
+        """
         results = Parallel(n_jobs=-1, backend="loky")(
             delayed(transformation_function)(str(ticker_file_path))
             for ticker_file_path in self.list_all_files(dir_path) if ticker_file_path.suffix == ".parquet"
@@ -1112,17 +1167,25 @@ class TickerExtender(TechnicalIndicators):
         return results
 
 
-    def add_empty_row_df(self, df, date_column, n_steps: int = 5):
+    def add_empty_row_df(self, df: pl.DataFrame, date_column: str, n_steps: int = 5) -> pl.DataFrame:
+        """
+        Adds an empty row to a Polars DataFrame with `n_steps` forward business days.
 
+        Args:
+            df (pl.DataFrame): Input DataFrame.
+            date_column (str): Name of the datetime column.
+            n_steps (int, optional): Number of business days to project forward. Defaults to 5.
+
+        Returns:
+            pl.DataFrame: DataFrame with the added empty row.
+        """
         # Create empty row
         empty_row = pl.DataFrame({col: [None]*n_steps for col in df.columns})
 
         # Cast each column in the empty row to the appropriate type using the original schema
         empty_row = empty_row.select([pl.col(col).cast(dtype) for col, dtype in df.schema.items()])
 
-        filtered_df = df.filter(pl.col(date_column) <= datetime(2025,1,31))
-
-        empty_row = empty_row.with_columns(pl.lit(filtered_df[-n_steps:][date_column]).dt.add_business_days(n_steps).alias("datetime").cast(df.schema["datetime"]))
+        empty_row = empty_row.with_columns(pl.lit(df[-n_steps:][date_column]).dt.add_business_days(n_steps).alias("datetime").cast(df.schema["datetime"]))
 
         df_with_empty = pl.concat([df, empty_row])
 
@@ -1131,7 +1194,23 @@ class TickerExtender(TechnicalIndicators):
 
 
     
-    def read_add_exog(self, file_path: str, n_last: int = 1265, date_column: str ="datetime", n_steps: int = 5):
+    def read_add_exog(
+        self, file_path: str, n_last: int = 1265, date_column: str = "datetime", n_steps: int = 5
+    ) -> pl.DataFrame:
+        """
+        Generates the rows of exogenous features necessary for prediction.
+        Reads a parquet file, resamples it to 'buiness day' frequency, adds as many empty rows as n_steps, 
+        and computes new exogenous features for them. 
+
+        Args:
+            file_path (str): Path to the parquet file.
+            n_last (int, optional): Number of last rows to consider. Defaults to 1265 due to current exog feature configuration.
+            date_column (str, optional): Name of the datetime column. Defaults to "datetime".
+            n_steps (int, optional): Forecast horizon. Defaults to 5.
+
+        Returns:
+            pl.DataFrame: DataFrame with computed exogenous features.
+        """
 
         ticker_df = self.read_parquet_file(file_path)
 
@@ -1160,7 +1239,22 @@ class TickerExtender(TechnicalIndicators):
         return symbol, ticker_df_new_exog
 
     
-    def merge_tickers(self, ticker_df_list: List, verbose: Optional[bool] = False, method: str="vertical")-> pl.DataFrame:
+    def merge_tickers(self, 
+                        ticker_df_list: List[pl.DataFrame], 
+                        verbose: Optional[bool] = False, 
+                        method: str = "vertical"
+                        ) -> pl.DataFrame:
+        """
+        Merges a list of Polars DataFrames containing ticker data.
+
+        Args:
+            ticker_df_list (List[pl.DataFrame]): List of DataFrames to merge.
+            verbose (Optional[bool], optional): If True, prints the number of merged tickers. Defaults to False.
+            method (str, optional): Merge method, "vertical" for row-wise or "horizontal" for column-wise. Defaults to "vertical".
+
+        Returns:
+            pl.DataFrame: The merged DataFrame.
+        """
 
         merged_tickers_df = pl.concat(ticker_df_list, how = method)
 
@@ -1170,7 +1264,19 @@ class TickerExtender(TechnicalIndicators):
 
         return merged_tickers_df
     
-    def generate_exog_dict(self, dir_path: str, n_last = 1265, n_steps = 5):
+    
+    def generate_exog_dict(self, dir_path: str, n_last: int = 1265, n_steps: int = 5) -> Dict[str, pl.DataFrame]:
+        """
+        Generates a dictionary of exogenous data for multiple tickers.
+
+        Args:
+            dir_path (str): Path to the directory containing ticker files.
+            n_last (int, optional): Number of past days to include. Defaults to 1265.
+            n_steps (int, optional): Forecast horizon steps. Defaults to 5.
+
+        Returns:
+            Dict[str, pl.DataFrame]: A dictionary where keys are ticker symbols and values are DataFrames with exogenous data.
+        """
 
         add_last_exogenous = partial(self.read_add_exog, n_last = n_last, date_column = "datetime", n_steps = n_steps)
 

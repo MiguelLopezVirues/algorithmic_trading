@@ -1,12 +1,34 @@
 import pandas as pd
+import numpy as np 
+import polars as pl
 
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from plotly.subplots import make_subplots
+from statsmodels.tsa.stattools import ccf
 
-def ticker_candlestick_plot(ticker_df: pd.DataFrame, ticker_name: str ="Stock", height_px: int=600, slider_visible: bool=False):
+
+
+def ticker_candlestick_plot(ticker_df: pd.DataFrame, 
+                            ticker_name: str ="Stock", 
+                            height_px: int=600, 
+                            slider_visible: bool=False):
+    """
+    Generates and displays a candlestick chart for a given stock ticker using Plotly.
+
+    Args:
+        ticker_df (pd.DataFrame): DataFrame containing stock data with columns ['open', 'high', 'low', 'close'] 
+                                  and a DateTime index.
+        ticker_name (str, optional): Name of the stock to display in the chart title. Defaults to "Stock".
+        height_px (int, optional): Height of the chart in pixels. Defaults to 600.
+        slider_visible (bool, optional): Whether to show the range slider for the x-axis. Defaults to False.
+
+    Returns:
+        None: Displays the generated candlestick chart.
+    """
+    ticker_df.columns = [col.lower() for col in ticker_df.columns]
     # define figure
     fig = go.Figure(data=[go.Candlestick(x=ticker_df.index,
                     open=ticker_df["open"],
@@ -28,7 +50,7 @@ def ticker_candlestick_plot(ticker_df: pd.DataFrame, ticker_name: str ="Stock", 
     fig.show()
 
 
-def plot_acf_pacf(lags=36, method="ywmle",data_test=None):
+def plot_acf_pacf(data, lags=36, method="ywmle"):
     """
     Grafica las funciones de autocorrelación (ACF) y autocorrelación parcial (PACF).
     
@@ -37,21 +59,27 @@ def plot_acf_pacf(lags=36, method="ywmle",data_test=None):
     lags : int
         Número de lags a graficar.
     """
+    plot_acf(data=data, lags=lags, method=method)
+    plot_pacf(data=data, lags=lags, method=method)
+
+
+def make_plot_acf(data, lags=36, method="ywmle"):
     plt.figure(figsize=(12, 10))
-    plot_acf(data_test.drop_nulls(), lags=lags)
+    plot_acf(data.drop_nulls(), lags=lags, method=method)
     plt.title("Función de Autocorrelación (ACF)")
     plt.grid()
     plt.show()
-    
+
+def make_plot_pacf(data, lags=36, method="ywmle"):
     plt.figure(figsize=(12, 10))
-    plot_pacf(data_test.drop_nulls(), lags=lags, method=method)
+    plot_pacf(data.drop_nulls(), lags=lags, method=method)
     plt.title("Función de Autocorrelación Parcial (PACF)")
     plt.grid()
     plt.show()
 
 
+
 def subplots_timeseries_lags(timeseries_df: pl.DataFrame, ticker_column: str) -> None:
-    # Select the "MSFT" column and ensure it has a date column
     df = timeseries_df
 
     # Define the lags
@@ -70,7 +98,7 @@ def subplots_timeseries_lags(timeseries_df: pl.DataFrame, ticker_column: str) ->
     # Plot the original time datetime
     fig.add_trace(go.Scatter(x=df["datetime"], y=df[ticker_column], name='Original'), row=1, col=1)
 
-    # Plot the lagged time series
+    # Plot the lagged time series in the dictionary
     for i, (lag_name, lag_value) in enumerate(trading_day_lags.items(), start=2):
 
         lagged_series = df.with_columns(
@@ -100,8 +128,8 @@ def subplots_timeseries_lags(timeseries_df: pl.DataFrame, ticker_column: str) ->
     # Update layout for better visualization
     fig.update_layout(height=800, title_text=f"{ticker_column} Time Series with Lags", showlegend=True)
 
-    # Show the figure
     fig.show()
+
 
 def plot_ccf_symmetric_statsmodels(x, y, max_lag=30, x_name="x", y_name="y", figsize=(10,5)):
     """

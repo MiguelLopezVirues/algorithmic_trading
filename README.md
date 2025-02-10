@@ -1,7 +1,7 @@
 # 📈💻 Algorithmic Trading
 
 <div style="text-align: center;">
-  <img src="assets/algorithmic_trading.jpg" alt="Project Cover" />
+  <img src="assets/image.png" alt="Project Cover" />
 </div>
 
 ## 📝 Project Overview

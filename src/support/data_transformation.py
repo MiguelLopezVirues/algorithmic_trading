@@ -719,6 +719,8 @@ class TickerExtender(TechnicalIndicators):
                     pl.col("volume").rolling_sum(5).alias("volume_last_5"),
                     pl.col("volume").rolling_sum(10).alias("volume_last_10"),
                     pl.col("volume").rolling_sum(15).alias("volume_last_15"),
+                    pl.col("volume").rolling_sum(22).alias("volume_last_22"),
+                    pl.col("volume").rolling_sum(66).alias("volume_last_66"),
                     (pl.col("close").cum_max() / pl.col("close")).alias("pct_ATH"),
                     (pl.col("close").cum_min() / pl.col("close")).alias("pct_ATL"),
                     (pl.col("close").rolling_max(22) / pl.col("close")).alias("pct_1_month_high"),

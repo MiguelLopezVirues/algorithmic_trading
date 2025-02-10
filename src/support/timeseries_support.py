@@ -131,11 +131,11 @@ class TimeSeriesAnalysis:
         fig.update_layout(template="plotly_white", xaxis_title="Fecha", yaxis_title="Valores")
         fig.show()
     
-    def detectar_estacionalidad(self, figsize = (12, 10)):
+    def detectar_estacionalidad(self, figsize = (12, 10), model="additive", period=12):
         """
         Detecta visualmente si la serie temporal tiene un componente estacional.
         """
-        decomposition = seasonal_decompose(self.data[self.value_column], model='additive', period=12)
+        decomposition = seasonal_decompose(self.data[self.value_column], model=model, period=period)
         
         # Crear figura y subplots
         fig, axes = plt.subplots(4, 1, figsize= figsize, sharex=True)

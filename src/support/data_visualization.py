@@ -202,3 +202,45 @@ def plot_ccf_symmetric_statsmodels(x, y, max_lag=30, x_name="x", y_name="y", fig
     plt.legend()
     plt.grid(True, ls=':')
     plt.show()
+
+
+def plot_bar_labels(ax: plt.Axes, contrast: bool = False, normalise: bool = False) -> None:
+    """
+    Adds labels to each bar in the plot.
+
+    Parameters:
+    ----------
+    ax : plt.Axes
+        Matplotlib Axes object where the bar labels will be added.
+    contrast : bool
+        Whether to adjust text color based on bar color brightness for better readability.
+    """
+    if not isinstance(contrast, bool):
+        raise TypeError(f"Expected 'contrast' to be of type 'bool', but got {type(contrast).__name__} instead.")
+    
+    if normalise:
+        total_height = sum([bar.get_height() for bar in ax.patches])
+
+    for bar in ax.patches:
+
+        height = bar.get_height()
+        
+        if height > 0.01:
+            bar_color = bar.get_facecolor()
+            
+            if contrast:
+                r, g, b = bar_color[:3]
+                brightness = (r * 299 + g * 587 + b * 114) / 1000
+                text_color = 'white' if brightness < 0.5 else 'black'
+            else:
+                text_color = 'white'
+
+            x_position = bar.get_x() + bar.get_width() / 2
+            ax.text(
+
+                x_position, height / 2, 
+                f'{height/total_height:.2f}' if normalise else f'{height:.2f}',
+                ha='center', va='center', color=text_color,
+                bbox=dict(facecolor=bar_color, edgecolor='none', alpha=0.8),
+                fontsize=12
+            )

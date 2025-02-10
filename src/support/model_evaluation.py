@@ -96,6 +96,12 @@ import src.support.data_visualization as dv
 # Instantiate objects
 ticker_extender = TickerExtender()
 file_handler = FileHandler()
+import os
+base_dir = os.path.dirname(__file__)
+from pathlib import Path
+
+
+from src.support.config.countries_exchanges import exchange_calendars_exog
 
 
 def fill_na_dict(
@@ -292,7 +298,8 @@ def evaluate_recursive_multiseries(
                                 show_progress: bool = True,
                                 n_jobs: Union[str,int] = "auto",
                                 verbose: bool = False,
-                                metric: str = "mean_absolute_percentage_error") -> Tuple[pd.DataFrame, pd.DataFrame, ForecasterRecursiveMultiSeries]:
+                                metric: str = "mean_absolute_percentage_error",
+                                best_params: Dict = None) -> Tuple[pd.DataFrame, pd.DataFrame, ForecasterRecursiveMultiSeries]:
     """
     Evaluates a recursive multi-series forecasting model using time series backtesting.
 
@@ -340,6 +347,9 @@ def evaluate_recursive_multiseries(
                         encoding         = encoding,
                     )
     
+    if best_params:
+        forecaster_recursive.set_params(**best_params)
+
     # Fit
     forecaster_recursive.fit(series=series_train, 
                             exog=exog_train,
@@ -379,6 +389,75 @@ def evaluate_recursive_multiseries(
 
     return metrics_levels, backtest_predictions, forecaster_recursive
 
+# def evaluate_recursive_multiseries_2(
+#                                 series_train: Union[Dict, pd.DataFrame],
+#                                 series: Union[Dict, pd.DataFrame],
+#                                 model: object, 
+#                                 forecast_horizon: int, 
+#                                 window_stats: List[str], 
+#                                 window_sizes: List[int], 
+#                                 lags: List[int],
+#                                 exog_train: Union[Dict, pd.DataFrame] = None,
+#                                 exog: Union[Dict, pd.DataFrame] = None,
+#                                 transformer_exog: object = None,
+#                                 encoding: str = "onehot",
+#                                 differentiation: int = 1, 
+#                                 refit: Union[bool,int] = 8,
+#                                 fixed_train_size: bool = True,
+#                                 suppress_warnings: bool = False,
+#                                 show_progress: bool = True,
+#                                 n_jobs: Union[str,int] = "auto",
+#                                 verbose: bool = False):
+
+#     # Fit forecaster
+#     # ==============================================================================
+#     # Define the forecaster. 
+#     window_features = RollingFeatures(stats=window_stats, window_sizes=window_sizes)
+#     forecaster_recursive = ForecasterRecursiveMultiSeries(
+#                         regressor        = model,
+#                         lags             = lags,
+#                         window_features  = window_features,
+#                         differentiation  = differentiation,
+#                         differentiator   = "pct",
+#                         transformer_exog = transformer_exog,
+#                         encoding         = encoding,
+#                     )
+    
+#     forecaster_recursive.fit(series=series_train, 
+#                             exog=exog_train,
+#                                 suppress_warnings=suppress_warnings)
+    
+#     display(forecaster_recursive)
+    
+
+#     # Backtesting
+#     # ==============================================================================
+#     cv = TimeSeriesFold(
+#             steps              = forecast_horizon,
+#             initial_train_size = len(next(iter(series_train.values()))) if isinstance(series_train, dict) else series_train.shape[0], # get first key to obtain length of series
+#             refit              = refit,
+#             fixed_train_size   = fixed_train_size,
+#             differentiation    = differentiation
+#         )
+    
+
+#     metrics_levels, backtest_predictions = backtesting_forecaster_multiseries(
+#         forecaster            = forecaster_recursive,
+#         series                = series,
+#         exog                  = exog,
+#         cv                    = cv,
+#         metric                = "mean_absolute_percentage_error",
+#         add_aggregated_metric = False,
+#         n_jobs                = n_jobs,
+#         verbose               = verbose,
+#         show_progress         = show_progress,
+#         suppress_warnings     = suppress_warnings
+#     )
+
+
+#     print(f"The mean MAPE is {metrics_levels['mean_absolute_percentage_error'].mean()}")
+
+#     return metrics_levels, backtest_predictions, forecaster_recursive
 
 
 def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
@@ -396,7 +475,7 @@ def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
                                 transformer_exog: object = None,
                                 encoding: str = "onehot",
                                 index_freq: str = "B",
-                                fill_nan: str = "ffil",
+                                fill_nan: str = "ffill",
                                 differentiation: int = 1, 
                                 refit: Union[bool,int] = 8,
                                 fixed_train_size: bool = True,
@@ -405,7 +484,7 @@ def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
                                 n_jobs: Union[str,int] = "auto",
                                 verbose: bool = False):
 
-    series_dict, exog_dict, series_dict_train, exog_dict_train = long_series_exog_to_dict(dataframe = dataframe,
+    series_dict, exog_dict, series_dict_train, exog_dict_train, _ = long_series_exog_to_dict(dataframe = dataframe,
                                                                                             series_id_column = series_id_column, 
                                                                                             start_train = start_train,
                                                                                             end_train = end_train,
@@ -417,7 +496,7 @@ def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
                                                                                             verbose = verbose)
     
 
-    metrics_levels, backtest_predictions, forecaster_recursive = evaluate_recursive_multiseries(series_train=series_dict_train,
+    metrics_levels, backtest_predictions, forecaster_recursive = evaluate_recursive_multiseries_2(series_train=series_dict_train,
                                                                                                 series=series_dict,
                                                                                                 model=model, 
                                                                                                 forecast_horizon=forecast_horizon, 
@@ -438,7 +517,166 @@ def evaluate_recursive_multiseries_separate(dataframe: pd.DataFrame,
 
 
 
-    return metrics_levels, backtest_predictions, forecaster_recursive
+    return metrics_levels, backtest_predictions, forecaster_recursive, series_dict_train, exog_dict_train
+
+
+def evaluate_direct_multiseries(dataframe: pd.DataFrame,
+                                start_train:str,
+                                end_val:str,
+                                end_test:str,
+                                model: object, 
+                                forecast_horizon:int, 
+                                target_list: List[str], 
+                                predictors_list: List[str], 
+                                window_stats: List[str], 
+                                window_sizes: List[int], 
+                                lags: List[int],
+                                exog_features: List[str] = [], 
+                                differentiation: int = 1, 
+                                refit: Union[bool, int]= 24,
+                                fixed_train_size: int= True,
+                                verbose: bool = False,
+                                suppress_warnings: bool = True,
+                                show_individual_progress = False,
+                                n_jobs: Union[str, int] = "auto"):
+    # Entrenar y realizar backtesting de un modelo para cada item - direct
+    # ======================================================================================
+    items = []
+    mape_values = []
+    predictions = []
+    forecasters_direct = {} # Should be aligned for predictions to start on Mondays and end on Fridays
+
+    initial_train_size = len(dataframe.loc[start_train:end_val,])
+    initial_train_start = dataframe.loc[[start_train],].index.day_name()[0]
+    initial_train_end = dataframe.loc[[end_val],].index.day_name()[0]
+    print(f"Initial train size starts on {start_train} ({initial_train_start}) and ends on {end_val} ({initial_train_end}).")
+
+    for item in tqdm(target_list):
+        # warnings.simplefilter('ignore', category='LongTrainingWarning')
+        # Definir el forecaster
+        window_features = RollingFeatures(stats=window_stats*len(window_sizes), window_sizes=window_sizes)
+
+        forecasters_direct[item] = ForecasterDirectMultiVariate(
+                                        level                   = item,
+                                        regressor               = model,
+                                        steps                   = forecast_horizon,
+                                        lags                    = lags,
+                                        window_features         = window_features,
+                                        differentiation         = differentiation,
+                                        differentiator= "pct",
+                                        n_jobs=n_jobs
+                                        )
+        
+        # Backtesitng 
+        cv = TimeSeriesFold(
+                    steps              = forecast_horizon,
+                    initial_train_size = initial_train_size,
+                    refit              = refit,
+                    fixed_train_size   = fixed_train_size,
+                    differentiation=1
+                )
+
+        metric, preds = backtesting_forecaster_multiseries(
+                                            forecaster            = forecasters_direct[item],
+                                            series                = dataframe.loc[start_train:end_test,predictors_list], 
+                                            levels                = [item],
+                                            exog                  = dataframe.loc[start_train:end_test,exog_features] if exog_features else None,
+                                            cv                    = cv,
+                                            metric                = 'mean_absolute_percentage_error',
+                                            add_aggregated_metric = False,
+                                            verbose               = verbose,
+                                            suppress_warnings     = suppress_warnings,
+                                            show_progress         = show_individual_progress ,
+                                            n_jobs                = n_jobs
+                                        )   
+
+        
+        items.append(item)
+        mape_values.append(metric.at[0, 'mean_absolute_percentage_error'])
+        predictions.append(preds)
+        
+
+    # Resultados
+    direct_series_results = pd.DataFrame({
+                        "levels": items,
+                        "mape": mape_values,
+                        "predictions": predictions
+                        })
+    
+    print(f"The mean MAPE for uniseries is {direct_series_results['mape'].mean():.6f}")
+    
+    return direct_series_results, forecasters_direct
+
+def evaluate_recursive_multiseries_dataframe(dataframe: pd.DataFrame,
+                                start_train:str,
+                                end_val:str,
+                                end_test:str,
+                                model: object, 
+                                forecast_horizon:int, 
+                                target_list: List[str], 
+                                predictors_list: List[str], 
+                                window_stats: List[str], 
+                                window_sizes: List[int], 
+                                lags: List[int],
+                                exog_features: List[str] = [], 
+                                differentiation: int = 1, 
+                                refit: Union[bool, int]= 8,
+                                fixed_train_size: int= True,
+                                verbose: bool = False,
+                                suppress_warnings: bool = True,
+                                show_individual_progress = False,
+                                show_progress: bool = False,
+                                n_jobs: Union[str, int] = "auto"):
+
+
+  # Fit forecaster
+  # ==============================================================================
+  # Define the forecaster. 
+  window_features = RollingFeatures(stats=window_stats, window_sizes=window_sizes)
+  forecaster_recursive = ForecasterRecursiveMultiSeries(
+                      regressor       = model,
+                      lags            = lags,
+                      window_features = window_features,
+                      differentiation = differentiation,
+                      differentiator="pct"
+                  )
+  
+  forecaster_recursive.fit(series            = dataframe.loc[start_train:end_val,predictors_list], 
+                           exog              = dataframe.loc[start_train:end_val,exog_features] if exog_features else None,
+                           suppress_warnings = suppress_warnings)
+  
+
+  # Backtesting
+  # ==============================================================================
+  cv = TimeSeriesFold(
+          steps              = forecast_horizon,
+          initial_train_size = dataframe.loc[start_train:end_val,].shape[0], # get first key to obtain length of series
+          refit              = refit,
+          fixed_train_size   = fixed_train_size,
+          differentiation    = differentiation
+       )
+  
+
+  metrics_levels, backtest_predictions = backtesting_forecaster_multiseries(
+      forecaster            = forecaster_recursive,
+      series                = dataframe.loc[start_train:end_test, predictors_list],
+      exog                  = dataframe.loc[start_train:end_test, exog_features] if exog_features else None,
+      levels                = target_list,
+      cv                    = cv,
+      metric                = "mean_absolute_percentage_error",
+      add_aggregated_metric = False,
+      n_jobs                = n_jobs,
+      verbose               = verbose,
+      show_progress         = show_progress,
+      suppress_warnings     = suppress_warnings
+  )
+
+
+
+  print(f"The mean MAPE is {metrics_levels['mean_absolute_percentage_error'].mean()}")
+
+  return metrics_levels, backtest_predictions, forecaster_recursive
+
 
 def get_opening_days_market(ecal_exchange_symbol: str, start: str, end: str):
     exchange_calendar = ecals.get_calendar(ecal_exchange_symbol)
@@ -535,116 +773,54 @@ def get_opening_days_market_pandas(mcal_exchange_symbol: str, start: str, end: s
 
 
 
-exchange_calendars = {
-    "US_AMERICA": {
-        "United States": "NYSE"  # New York Stock Exchange (NYSE)
-    },
-    "AMERICA": {
-        "Canada": "TSX",         # Toronto Stock Exchange
-        "Mexico": "XMEX",        # Mexican Stock Exchange (BMV)
-        "Brazil": "BVMF",        # B3 - Brasil Bolsa Balcão
-        "Chile": "XSGO",         # Santiago Stock Exchange
-        "Argentina": "XBUE"      # Buenos Aires Stock Exchange
-    },
-    "EU": {
-        "Germany": "XETR",       # Frankfurt Stock Exchange (XETRA)
-        "United Kingdom": "XLON", # London Stock Exchange (LSE)
-        "France": "XPAR",        # Euronext Paris
-        "Spain": "XMAD",         # Bolsa de Madrid
-        "Netherlands": "XAMS",   # Euronext Amsterdam
-        "Sweden": "XSTO",        # Nasdaq Stockholm
-        "Italy": "XMIL",         # Borsa Italiana (Milan)
-        "Switzerland": "XSWX",   # SIX Swiss Exchange
-        "Poland": "XWAR",        # Warsaw Stock Exchange
-        "Finland": "XHEL",       # Nasdaq Helsinki
-        "Denmark": "XCSE",       # Nasdaq Copenhagen
-        "Ireland": "XDUB",       # Euronext Dublin
-        "Belgium": "XBRU",       # Euronext Brussels
-        "Austria": "XWBO",       # Wiener Börse (Vienna Stock Exchange)
-        "Portugal": "XLIS",      # Euronext Lisbon
-        "Greece": "XATH",        # Athens Stock Exchange
-        "Luxembourg": "XLUX",    # Luxembourg Stock Exchange
-        "Czech Republic": "XPRA", # Prague Stock Exchange
-        "Iceland": "XICE",       # Nasdaq Iceland
-        "EU": "EUREX",           # Placeholder for entire EU region
-        "European Union": "EUREX",
-        "Europe": "EUREX"
-    },
-    "ASIA": {
-        "China": "XSHG",         # Shanghai Stock Exchange
-        "Japan": "XTKS",         # Tokyo Stock Exchange
-        "South Korea": "XKRX",   # Korea Exchange
-        "Hong Kong": "XHKG",     # Hong Kong Stock Exchange
-        "Singapore": "XSES",     # Singapore Exchange
-        "Taiwan": "XTAI",        # Taiwan Stock Exchange
-        "Thailand": "XBKK",      # Stock Exchange of Thailand
-        "India": "XBOM",         # National Stock Exchange of India
-        "Indonesia": "XIDX",     # Indonesia Stock Exchange
-        "Philippines": "XPHS",   # Philippine Stock Exchange
-        "Vietnam": "XHOSE",      # Ho Chi Minh Stock Exchange (HSX)
-        "Malaysia": "XKLS",      # Bursa Malaysia
-        "Pakistan": "XKAR",      # Pakistan Stock Exchange
-        "Cambodia": "XCSX",      # Cambodia Securities Exchange
-        "Asia": "XASX"           # Placeholder for entire Asia region
-    },
-    "MIDDLE_EAST": {
-        "Saudi Arabia": "XSAU",  # Saudi Stock Exchange (Tadawul)
-        "United Arab Emirates": "XDFM",  # Dubai Financial Market
-        "Israel": "XTASE",       # Tel Aviv Stock Exchange
-        "Qatar": "XQSE",         # Qatar Stock Exchange
-        "Bahrain": "XBAH",       # Bahrain Bourse
-        "Oman": "XMSM",          # Muscat Securities Market
-        "Kuwait": "XKFE",        # Boursa Kuwait
-        "Turkey": "XIST"         # Borsa Istanbul
-    },
-    "OTHERS": {
-        "Australia": "XASX",     # Australian Securities Exchange
-        "New Zealand": "XNZE",   # New Zealand Exchange
-        "South Africa": "XJSE",  # Johannesburg Stock Exchange
-        "Norway": "XOSL",        # Oslo Stock Exchange
-        "Russia": "XMOS"         # Moscow Exchange (MOEX)
-    },
-    "GLOBAL": {
-        "Global": "GLOBAL"       # Placeholder for global markets
+def get_stocks_info():
+    data_dict = {
+        'symbol': [],
+        'industry': [],
+        'sector': [],
+        'country': [],
+        'region': []
     }
-}
+
+    for file in file_handler.list_all_files(Path(base_dir) / "../../data/extracted/OHLCV/"):
+        if "parquet" in str(file):
+            stock_first_row = file_handler.read_parquet_file(file)[0]
+            data_dict['symbol'].append(stock_first_row['symbol'][0])
+            data_dict['industry'].append(stock_first_row['industry'][0])
+            data_dict['sector'].append(stock_first_row['sector'][0])
+            data_dict['country'].append(stock_first_row['country'][0])
+            data_dict['region'].append(stock_first_row['region'][0])
+
+    stocks_info = pl.DataFrame(data_dict)
+
+    return stocks_info
 
 
-
-# def get_opening_days_market_exog(dataframe: pd.DataFrame, symbol_column: str = "symbol"):
-
-#     open_market_df = pd.DataFrame()
-#     for i, symbol in enumerate(dataframe[symbol_column].unique()):
-#         country = stocks_info.loc[stocks_info["symbol"] == symbol, "country"].iloc[0].title().replace("_"," ")
-#         region = stocks_info.loc[stocks_info["symbol"] == symbol, "region"].iloc[0]
-#         exchange_symbol = exchange_calendars[region][country]
-#         start = dataframe.loc[dataframe["symbol"] == symbol].index.min()
-#         end = dataframe.loc[dataframe["symbol"] == symbol].index.max()
-
-#         # df = pd.concat([dataframe.loc[dataframe["symbol"] == symbol], get_opening_days_market_pandas(exchange_symbol, start=start, end=end)], axis=1)
-
-#         # open_market_df = pd.concat([open_market_df,df],axis=0)   
-#         open_market_df = pd.concat([open_market_df, get_opening_days_market_pandas(exchange_symbol, start=start, end=end)])
-    
-#     return pd.concat([dataframe,open_market_df],axis=1)
 
 def get_opening_days_market_exog(dataframe: pd.DataFrame, symbol_column: str = "symbol"):
 
+    stocks_info = get_stocks_info().to_pandas()
+
     open_market_df = pd.DataFrame()
     for i, symbol in enumerate(dataframe[symbol_column].unique()):
+        # Get country and region
         country = stocks_info.loc[stocks_info["symbol"] == symbol, "country"].iloc[0].title().replace("_"," ")
         region = stocks_info.loc[stocks_info["symbol"] == symbol, "region"].iloc[0]
-        exchange_symbol = exchange_calendars[region][country]
+
+        # Get the market exchange symbol
+        exchange_symbol = exchange_calendars_exog[region][country]
+
+        # Define start and end for the calendar dates
         start = dataframe.loc[dataframe["symbol"] == symbol].index.min()
         end = dataframe.loc[dataframe["symbol"] == symbol].index.max()
+
 
         df = pd.concat([dataframe.loc[dataframe["symbol"] == symbol], get_opening_days_market_pandas(exchange_symbol, start=start, end=end)], axis=1)
 
         open_market_df = pd.concat([open_market_df,df],axis=0)   
-        # open_market_df = pd.concat([open_market_df, get_opening_days_market_pandas(exchange_symbol, start=start, end=end)])
-    
-    # return pd.concat([dataframe,open_market_df],axis=1)
+
     return open_market_df
+
 
 
 
@@ -771,12 +947,52 @@ def calculate_top_pacf(pacf_df, top_n_lags=5):
     return top_lags_pacf
 
 
-def calculate_top_acf_pacf_df(df, cols, n_lags=90, method='pacf'):
+# def calculate_top_acf_pacf_df(df, cols, n_lags=90, method='pacf'):
+    
+#     n_rows = math.ceil(len(cols) / 2)
+#     n_cols = 1 if len(cols) == 1 else 2
+
+#     acf_pacf_df = []
+#     fig, axs = plt.subplots(n_rows, 2, figsize=(12, 1.5 * n_rows))
+#     axs = axs.flat
+        
+#     for i, col in enumerate(cols):
+#         series = df[col].pct_change(1).dropna()
+        
+#         if method == 'pacf':
+#             values = pacf(series, nlags=n_lags)
+#             plot_func = plot_pacf
+
+#         elif method == 'acf':
+#             values = acf(series, nlags=n_lags)
+#             plot_func = plot_acf
+#         else:
+#             raise ValueError("Method must be either 'pacf' or 'acf'")
+        
+#         values_df = pd.DataFrame({
+#             'lag': range(1, len(values)),
+#             'value': values[1:],
+#             'variable': col
+#         })
+#         acf_pacf_df.append(values_df)
+        
+#         plot_func(series, lags=n_lags, ax=axs[i])
+#         axs[i].set_title(col, fontsize=10)
+#         axs[i].set_ylim(-0.5, 1.1)
+    
+#     plt.tight_layout()
+
+#     top_acf_pacf_df = calculate_top_lags(acf_pacf_df, top_n_lags=5)
+
+#     return top_acf_pacf_df
+
+def calculate_top_acf_pacf_df(df, cols, n_lags=60, method='pacf'):
     
     n_rows = math.ceil(len(cols) / 2)
     n_cols = 1 if len(cols) == 1 else 2
 
     acf_pacf_df = []
+
     fig, axs = plt.subplots(n_rows, 2, figsize=(12, 1.5 * n_rows))
     axs = axs.flat
         
@@ -806,9 +1022,27 @@ def calculate_top_acf_pacf_df(df, cols, n_lags=90, method='pacf'):
     
     plt.tight_layout()
 
-    top_acf_pacf_df = calculate_top_lags(acf_pacf_df, top_n_lags=5)
+    top_acf_pacf_df, top_acf_pacf_dict = calculate_top_lags(acf_pacf_df, top_n_lags=5)
 
-    return top_acf_pacf_df
+    return top_acf_pacf_df, top_acf_pacf_dict
+
+
+
+# def calculate_top_lags(acf_pacf_df, top_n_lags=5):
+#     print("Showing all possible lags:")
+#     print("=========")
+#     top_lags = set()
+#     top_lags_dict = dict()
+#     for values_df in acf_pacf_df:
+#         variable = values_df['variable'].iloc[0]
+#         values_df['value'] = values_df['value'].abs()
+#         lags = values_df.nlargest(top_n_lags, 'value')['lag'].tolist()
+#         top_lags_dict[variable] = lags
+#         top_lags.update(lags)
+#         print(f"{variable}: {lags}")
+#     top_lags = list(top_lags)
+#     return top_lags
+
 
 def calculate_top_lags(acf_pacf_df, top_n_lags=5):
     print("Showing all possible lags:")
@@ -823,9 +1057,7 @@ def calculate_top_lags(acf_pacf_df, top_n_lags=5):
         top_lags.update(lags)
         print(f"{variable}: {lags}")
     top_lags = list(top_lags)
-    return top_lags
-
-
+    return top_lags, top_lags_dict
 
 
 def plot_predicted_intervals(
@@ -884,6 +1116,83 @@ def plot_predicted_intervals(
         legend=dict(orientation="h", yanchor="top", y=1.1, xanchor="left", x=0.001)
     )
     fig.show()
+    
+def plot_predicted_intervals_multiple_bounds(
+    predictions: pd.DataFrame,
+    y_true: pd.DataFrame,
+    target_variable: str,
+    initial_x_zoom: list=None,
+    title: str=None,
+    xaxis_title: str=None,
+    yaxis_title: str=None,
+    num_bounds: int = 1
+):
+    """
+    Plot predicted intervals vs real values with multiple stacked bounds.
+
+    Parameters
+    ----------
+    predictions : pandas DataFrame
+        Predicted values and intervals.
+    y_true : pandas DataFrame
+        Real values of target variable.
+    target_variable : str
+        Name of target variable.
+    initial_x_zoom : list, default `None`
+        Initial zoom of x-axis, by default None.
+    title : str, default `None`
+        Title of the plot, by default None.
+    xaxis_title : str, default `None`
+        Title of x-axis, by default None.
+    yaxis_title : str, default `None`
+        Title of y-axis, by default None.
+    num_bounds : int, default 1
+        The number of bounds to plot stacked, by default 1.
+    
+    """
+    # Initialize figure
+    fig = go.Figure([
+        # Plotting the predicted values
+        go.Scatter(name='Prediction', x=predictions.index, y=predictions[target_variable], mode='lines'),
+        # Plotting the real values
+        go.Scatter(name='Real value', x=y_true.index, y=y_true[target_variable], mode='lines'),
+    ])
+    
+    # Add stacked bounds
+    for i in range(1, num_bounds + 1):
+        upper_bound_col = f'{target_variable}_upper_bound_{i}'
+        lower_bound_col = f'{target_variable}_lower_bound_{i}'
+        
+        if upper_bound_col in predictions.columns and lower_bound_col in predictions.columns:
+            fig.add_trace(
+                go.Scatter(
+                    name=f'Upper Bound {i}', x=predictions.index, y=predictions[upper_bound_col],
+                    mode='lines', marker=dict(color="#444"), line=dict(width=0), showlegend=False
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    name=f'Lower Bound {i}', x=predictions.index, y=predictions[lower_bound_col],
+                    marker=dict(color="#444"), line=dict(width=0), mode='lines',
+                    fillcolor=f'rgba(68, 68, 68, {0.3 * i})', fill='tonexty', showlegend=False
+                )
+            )
+    
+    # Update the layout
+    fig.update_layout(
+        title=title,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
+        width=800,
+        height=400,
+        margin=dict(l=20, r=20, t=35, b=20),
+        hovermode="x",
+        xaxis=dict(range=initial_x_zoom),
+        legend=dict(orientation="h", yanchor="top", y=1.1, xanchor="left", x=0.001)
+    )
+    
+    # Show the plot
+    fig.show()
 
 
 def empirical_coverage(y, lower_bound, upper_bound):
@@ -891,3 +1200,70 @@ def empirical_coverage(y, lower_bound, upper_bound):
     Calculate coverage of a given prediction interval's lower and upper bound
     """
     return np.mean(np.logical_and(y >= lower_bound, y <= upper_bound))
+
+
+def plot_interval_coverage(interval_predictions: pd.DataFrame, series_dict_true: Dict, symbol, zoom_start: str, zoom_end: str):
+    """
+    Plots the predicted intervals for a given symbol and calculates the empirical coverage 
+    of the prediction intervals.
+
+    Parameters
+    ----------
+    interval_predictions : pd.DataFrame
+        DataFrame containing the predicted intervals. It should have columns for the 
+        lower and upper bounds of the interval.
+    series_dict_true : Dict
+        Dictionary containing the true time series data for multiple symbols.
+    symbol : str
+        Symbol representing the specific time series to analyze.
+    zoom_start : str
+        Start date for zooming into the plot (format: 'YYYY-MM-DD').
+    zoom_end : str
+        End date for zooming into the plot (format: 'YYYY-MM-DD').
+
+    Returns
+    -------
+    tuple[float, float]
+        - The empirical coverage of the predicted interval as a percentage.
+        - The total area of the interval (sum of differences between upper and lower bounds).
+
+    Notes
+    -----
+    - The function plots the real vs. predicted values within the specified zoom range.
+    - The empirical coverage represents the percentage of actual values that fall within 
+      the predicted interval.
+    - The area of the interval is computed as the sum of the differences between the 
+      upper and lower bounds.
+    """
+    # Plot intervals with zoom
+    # ==============================================================================
+    plot_predicted_intervals(
+        predictions     = interval_predictions[[col for col in interval_predictions.columns if symbol in col]],
+        y_true          = pd.DataFrame(series_dict_true[symbol].loc[interval_predictions.index], columns=[symbol]),
+        target_variable = symbol,
+        initial_x_zoom  = [zoom_start, zoom_end],
+        title           = "Real value vs predicted in test data",
+        xaxis_title     = "Date time",
+        yaxis_title     = "users",
+    )
+
+
+    # Predicted interval coverage (on test data)
+    # ==============================================================================
+    coverage = empirical_coverage(
+                    y           = series_dict_true[symbol].loc[interval_predictions.index.min():], # y_true
+                    lower_bound = interval_predictions[f"{symbol}_lower_bound"], # predicted lower_bound
+                    upper_bound = interval_predictions[f"{symbol}_upper_bound"] # predicted upper_bound
+                )
+    print(f"Predicted interval coverage: {round(100 * coverage, 2)} %")
+
+    # Area of the interval
+    # ==============================================================================
+    area = (interval_predictions[f"{symbol}_upper_bound"] - interval_predictions[f"{symbol}_lower_bound"]).sum()
+    print(f"Area of the interval: {round(area, 2)}")
+
+    return round(100 * coverage, 2), area
+
+
+
+ 

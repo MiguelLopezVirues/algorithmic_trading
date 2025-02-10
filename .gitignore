@@ -1,3 +1,7 @@
+# Git and docker ignore files
+.gitignore
+.dockerignore
+
 # Python-generated files
 __pycache__/
 *.py[oc]
